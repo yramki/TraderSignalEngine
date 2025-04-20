@@ -255,6 +255,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to process Discord message" });
     }
   });
+  
+  // [TEST ONLY] Add sample signals for testing
+  app.post("/api/test/add-sample-signals", async (req, res) => {
+    try {
+      const sampleDiscordMessages = [
+        {
+          id: 'msg_test_btc_' + Date.now(),
+          content: "Longed BTC at 67500 sl- 65200 (1% risk) TPs: 70000",
+          author: {
+            id: 'user_btc_trader',
+            username: 'BTCTrader'
+          },
+          channel_id: 'channel_signals',
+          guild_id: 'guild_crypto',
+          timestamp: new Date().toISOString()
+        },
+        {
+          id: 'msg_test_eth_' + Date.now(),
+          content: "Shorted ETH at 3520 sl- 3650 TPs: 3300",
+          author: {
+            id: 'user_eth_trader',
+            username: 'ETHTrader'
+          },
+          channel_id: 'channel_signals',
+          guild_id: 'guild_crypto',
+          timestamp: new Date().toISOString()
+        },
+        {
+          id: 'msg_test_sol_' + Date.now(),
+          content: "SOL Entry: 150.25 SL: 145.5 TPs: 160",
+          author: {
+            id: 'user_sol_trader',
+            username: 'SOLTrader'
+          },
+          channel_id: 'channel_signals',
+          guild_id: 'guild_crypto',
+          timestamp: new Date().toISOString()
+        }
+      ];
+      
+      const results = [];
+      
+      for (const message of sampleDiscordMessages) {
+        await discordService.processMessage(message);
+        results.push(message);
+      }
+      
+      res.status(200).json({ 
+        success: true, 
+        message: "Sample signals added",
+        count: results.length,
+        results
+      });
+    } catch (error) {
+      console.error("Error adding sample signals:", error);
+      res.status(500).json({ error: "Failed to add sample signals" });
+    }
+  });
 
   const httpServer = createServer(app);
 
