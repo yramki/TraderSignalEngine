@@ -14,10 +14,11 @@ async function testDiscordApiKey() {
   }
   
   try {
-    // Let's try using a different endpoint - get current user info
+    // Let's try without the "Bot " prefix - it might be a token directly
+    console.log('Trying with token format...');
     const response = await fetch('https://discord.com/api/v10/users/@me', {
       headers: {
-        Authorization: `Bot ${apiKey}`
+        Authorization: `Bearer ${apiKey}`
       }
     });
     
