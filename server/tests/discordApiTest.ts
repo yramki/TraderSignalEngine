@@ -14,13 +14,36 @@ async function testDiscordApiKey() {
   }
   
   try {
-    // Let's try without the "Bot " prefix - it might be a token directly
-    console.log('Trying with token format...');
-    const response = await fetch('https://discord.com/api/v10/users/@me', {
+    // Try multiple auth formats to see which one works
+    console.log('Testing various auth formats...');
+    
+    // Format 1: Bot prefix (standard for bot tokens)
+    console.log('Trying with Bot prefix on gateway endpoint...');
+    let response = await fetch('https://discord.com/api/v10/gateway', {
       headers: {
-        Authorization: `Bearer ${apiKey}`
+        Authorization: `Bot ${apiKey}`
       }
     });
+    
+    // If first format fails, try Bearer format
+    if (!response.ok) {
+      console.log('Bot prefix failed, trying Bearer format...');
+      response = await fetch('https://discord.com/api/v10/users/@me', {
+        headers: {
+          Authorization: `Bearer ${apiKey}`
+        }
+      });
+    }
+    
+    // If both fail, try just the token
+    if (!response.ok) {
+      console.log('Bearer format failed, trying token directly...');
+      response = await fetch('https://discord.com/api/v10/users/@me', {
+        headers: {
+          Authorization: apiKey
+        }
+      });
+    }
     
     // Check if we got a successful response
     if (response.ok) {
