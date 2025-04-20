@@ -62,7 +62,10 @@ class DiscordService {
         }
       }
       
+      // This is the common format for channel messages API
       const url = `https://discord.com/api/v10/channels/${channelId}/messages?limit=${limit}`;
+      console.log(`Fetching messages from Discord channel ${channelId}...`);
+      
       const response = await fetch(url, {
         headers: {
           Authorization: `Bot ${this.apiKey}`
@@ -73,7 +76,17 @@ class DiscordService {
         const errorData = await response.json().catch(() => ({}));
         console.error(`Failed to fetch Discord messages: ${response.status} ${response.statusText}`);
         console.error('Error details:', errorData);
-        return [];
+        
+        // Don't silently fail - throw a proper error with context
+        if (response.status === 401) {
+          throw new Error(`Bot not authorized to access channel ${channelId}. Check bot permissions.`);
+        } else if (response.status === 403) {
+          throw new Error(`Bot lacks permission to view channel ${channelId}. Add bot to the channel with read permissions.`);
+        } else if (response.status === 404) {
+          throw new Error(`Channel ${channelId} not found. Verify the channel ID is correct.`);
+        } else {
+          throw new Error(`Discord API error: ${response.status} ${response.statusText}`);
+        }
       }
       
       const messages: DiscordMessageContent[] = await response.json();
@@ -81,7 +94,7 @@ class DiscordService {
       return messages;
     } catch (error) {
       console.error('Error fetching Discord messages:', error);
-      return [];
+      throw error; // Re-throw to let the caller handle it
     }
   }
   

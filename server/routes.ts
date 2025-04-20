@@ -266,7 +266,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(messages);
     } catch (error) {
       console.error("Error fetching Discord messages:", error);
-      res.status(500).json({ error: "Failed to fetch Discord messages" });
+      
+      // Be more specific about the error
+      if (error instanceof Error) {
+        // Determine appropriate status code based on error message
+        if (error.message.includes("401") || error.message.includes("not authorized")) {
+          return res.status(401).json({ error: error.message });
+        } else if (error.message.includes("403") || error.message.includes("lacks permission")) {
+          return res.status(403).json({ error: error.message });
+        } else if (error.message.includes("404") || error.message.includes("not found")) {
+          return res.status(404).json({ error: error.message });
+        }
+      }
+      
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to fetch Discord messages" });
     }
   });
   
@@ -286,7 +299,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Error processing Discord channel:", error);
-      res.status(500).json({ error: "Failed to process Discord channel" });
+      
+      // Be more specific about the error
+      if (error instanceof Error) {
+        // Determine appropriate status code based on error message
+        if (error.message.includes("401") || error.message.includes("not authorized")) {
+          return res.status(401).json({ error: error.message });
+        } else if (error.message.includes("403") || error.message.includes("lacks permission")) {
+          return res.status(403).json({ error: error.message });
+        } else if (error.message.includes("404") || error.message.includes("not found")) {
+          return res.status(404).json({ error: error.message });
+        }
+      }
+      
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to process Discord channel" });
     }
   });
   
