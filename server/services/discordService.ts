@@ -27,11 +27,64 @@ class DiscordService {
   }
 
   async checkConnection(): Promise<boolean> {
-    // In a real implementation, this would ping the Discord API
-    // For now, just return the simulated connection status
-    return this.isConnected;
+    try {
+      // Use the gateway endpoint which worked in our tests
+      const response = await fetch('https://discord.com/api/v10/gateway', {
+        headers: {
+          Authorization: `Bot ${this.apiKey}`
+        }
+      });
+      
+      this.isConnected = response.ok;
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error(`Discord API check failed: ${response.status} ${response.statusText}`);
+        console.error('Error details:', errorData);
+      } else {
+        console.log('✅ Successfully connected to Discord API');
+      }
+      
+      return this.isConnected;
+    } catch (error) {
+      console.error('Failed to connect to Discord API:', error);
+      this.isConnected = false;
+      return false;
+    }
   }
 
+  async fetchMessages(channelId: string, limit: number = 10): Promise<DiscordMessageContent[]> {
+    try {
+      if (!this.isConnected) {
+        await this.checkConnection();
+        if (!this.isConnected) {
+          throw new Error('Not connected to Discord API');
+        }
+      }
+      
+      const url = `https://discord.com/api/v10/channels/${channelId}/messages?limit=${limit}`;
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bot ${this.apiKey}`
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error(`Failed to fetch Discord messages: ${response.status} ${response.statusText}`);
+        console.error('Error details:', errorData);
+        return [];
+      }
+      
+      const messages: DiscordMessageContent[] = await response.json();
+      console.log(`Fetched ${messages.length} messages from Discord channel ${channelId}`);
+      return messages;
+    } catch (error) {
+      console.error('Error fetching Discord messages:', error);
+      return [];
+    }
+  }
+  
   async processMessage(message: DiscordMessageContent): Promise<void> {
     console.log(`Processing Discord message: ${message.id}`);
     
@@ -82,6 +135,28 @@ class DiscordService {
         // In a real implementation, this would call into a trade execution service
         console.log(`Auto-executing trade for ${signalData.ticker}`);
       }
+    }
+  }
+  
+  async processChannelMessages(channelId: string, limit: number = 20): Promise<number> {
+    try {
+      const messages = await this.fetchMessages(channelId, limit);
+      let processedCount = 0;
+      
+      // Process each message to see if it contains valid trading signals
+      for (const message of messages) {
+        try {
+          await this.processMessage(message);
+          processedCount++;
+        } catch (error) {
+          console.error(`Error processing message ${message.id}:`, error);
+        }
+      }
+      
+      return processedCount;
+    } catch (error) {
+      console.error(`Error processing channel ${channelId}:`, error);
+      return 0;
     }
   }
   

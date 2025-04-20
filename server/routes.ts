@@ -256,6 +256,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Fetch and process messages from a Discord channel
+  app.get("/api/discord/messages/:channelId", async (req, res) => {
+    try {
+      const channelId = req.params.channelId;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      
+      const messages = await discordService.fetchMessages(channelId, limit);
+      res.json(messages);
+    } catch (error) {
+      console.error("Error fetching Discord messages:", error);
+      res.status(500).json({ error: "Failed to fetch Discord messages" });
+    }
+  });
+  
+  // Process messages from a Discord channel and extract trading signals
+  app.post("/api/discord/process-channel/:channelId", async (req, res) => {
+    try {
+      const channelId = req.params.channelId;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+      
+      const processedCount = await discordService.processChannelMessages(channelId, limit);
+      
+      res.json({ 
+        success: true, 
+        channelId,
+        processedCount,
+        message: `Processed ${processedCount} messages from Discord channel` 
+      });
+    } catch (error) {
+      console.error("Error processing Discord channel:", error);
+      res.status(500).json({ error: "Failed to process Discord channel" });
+    }
+  });
+  
   // [TEST ONLY] Add sample signals for testing
   app.post("/api/test/add-sample-signals", async (req, res) => {
     try {
