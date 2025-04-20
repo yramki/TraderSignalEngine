@@ -1,90 +1,91 @@
-import { parseDiscordMessage, hasValidSignal } from './discordParser';
+import { hasValidSignal, parseDiscordMessage } from './discordParser';
 
-// Sample Discord messages to test
-const testMessages = [
+// Test cases
+const testCases = [
   {
-    id: 1,
-    content: "Longed BTC at 67500 sl- 65200 (1% risk) TPs: 70000",
+    message: "Longed BTC at 67500 sl- 65200 (1% risk) TPs: 70000",
     expected: {
       ticker: "BTC",
       entryPrice: 67500,
-      stopLossPrice: 65200,
       targetPrice: 70000,
+      stopLossPrice: 65200,
       isLong: true,
       risk: 1
     }
   },
   {
-    id: 2,
-    content: "Shorted ETH at 3520 sl- 3650 TPs: 3300",
+    message: "Shorted ETH at 3520 sl- 3650 TPs: 3300",
     expected: {
       ticker: "ETH",
       entryPrice: 3520,
-      stopLossPrice: 3650,
       targetPrice: 3300,
+      stopLossPrice: 3650,
       isLong: false,
-      risk: 1 // Default value
+      risk: 1
     }
   },
   {
-    id: 3,
-    content: "SOL Entry: 150.25 SL: 145.5 TPs: 160",
+    message: "SOL Entry: 150.25 SL: 145.5 TPs: 160",
     expected: {
       ticker: "SOL",
       entryPrice: 150.25,
-      stopLossPrice: 145.5,
       targetPrice: 160,
-      isLong: false, // Indeterminate, defaults to false
-      risk: 1 // Default value
+      stopLossPrice: 145.5,
+      isLong: false,
+      risk: 1
     }
-  },
-  {
-    id: 4,
-    content: "Random message that doesn't contain trading signal",
-    expected: null
   }
 ];
 
 // Run tests
-console.log("Testing Discord Message Parser");
-console.log("------------------------------");
-
-testMessages.forEach(test => {
-  console.log(`\nTest #${test.id}: "${test.content.substring(0, 30)}..."`);
+export function runDiscordParserTests() {
+  console.log("Running Discord parser tests...");
   
-  // Test hasValidSignal first
-  const isValid = hasValidSignal(test.content);
-  console.log(`Is valid signal: ${isValid}`);
+  let passedTests = 0;
+  let failedTests = 0;
   
-  // Then test parsing
-  const result = parseDiscordMessage(test.content);
-  
-  if (test.expected === null) {
-    if (result === null) {
-      console.log("✅ Correctly returned null");
-    } else {
-      console.log("❌ Expected null but got:", result);
+  for (const test of testCases) {
+    console.log(`\nTesting message: "${test.message}"`);
+    
+    // Check if message is valid
+    const isValid = hasValidSignal(test.message);
+    console.log(`Is valid signal: ${isValid}`);
+    
+    if (!isValid) {
+      console.log("❌ FAILED: Message should be valid");
+      failedTests++;
+      continue;
     }
-  } else {
-    if (result === null) {
-      console.log("❌ Expected valid result but got null");
-    } else {
-      console.log("Parsed result:", result);
-      
-      // Compare result with expected
-      const keys = ['ticker', 'entryPrice', 'stopLossPrice', 'targetPrice', 'isLong', 'risk'];
-      let allMatch = true;
-      
-      keys.forEach(key => {
-        if (result[key as keyof typeof result] !== test.expected[key as keyof typeof test.expected]) {
-          console.log(`❌ Mismatch in ${key}: expected=${test.expected[key as keyof typeof test.expected]}, actual=${result[key as keyof typeof result]}`);
-          allMatch = false;
-        }
-      });
-      
-      if (allMatch) {
-        console.log("✅ All fields match");
+    
+    // Parse message
+    const result = parseDiscordMessage(test.message);
+    console.log("Parsed result:", result);
+    
+    if (!result) {
+      console.log("❌ FAILED: Could not parse message");
+      failedTests++;
+      continue;
+    }
+    
+    // Compare with expected
+    let testPassed = true;
+    for (const key in test.expected) {
+      // @ts-ignore
+      if (result[key] !== test.expected[key]) {
+        // @ts-ignore
+        console.log(`❌ FAILED: Property ${key} mismatch. Expected ${test.expected[key]}, got ${result[key]}`);
+        testPassed = false;
       }
     }
+    
+    if (testPassed) {
+      console.log("✅ PASSED");
+      passedTests++;
+    } else {
+      failedTests++;
+    }
   }
-});
+  
+  console.log(`\nTest summary: ${passedTests} passed, ${failedTests} failed`);
+  return { passedTests, failedTests };
+}

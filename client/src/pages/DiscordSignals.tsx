@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { TradingSignal } from "@shared/schema";
 import TabNavigation from "@/components/TabNavigation";
 import SignalCard from "@/components/SignalCard";
 import Sidebar from "@/components/Sidebar";
 import { Button } from "@/components/ui/button";
-import { RefreshCcw, Filter } from "lucide-react";
+import { RefreshCcw, Filter, Plus } from "lucide-react";
 import { 
   Select, 
   SelectContent, 
@@ -28,22 +28,111 @@ import {
   TabsTrigger 
 } from "@/components/ui/tabs";
 import { useAppContext } from "@/context/AppContext";
+import { hasValidSignal, parseDiscordMessage } from "@/lib/discordParser";
+import { runDiscordParserTests } from "@/lib/discordParserTest";
+import { useToast } from "@/hooks/use-toast";
 
 export default function DiscordSignals() {
   const { refreshData } = useAppContext();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [timeFilter, setTimeFilter] = useState("all");
   const [executionFilter, setExecutionFilter] = useState("all");
-
-  // Get all discord signals
-  const { data: allSignals = [] } = useQuery<TradingSignal[]>({
+  const [sampleSignals, setSampleSignals] = useState<TradingSignal[]>([]);
+  const { toast } = useToast();
+  
+  // Get all discord signals from API
+  const { data: apiSignals = [] } = useQuery<TradingSignal[]>({
     queryKey: ['/api/signals/all'],
   });
+  
+  // Combine API signals with our sample signals
+  const allSignals = [...apiSignals, ...sampleSignals];
+  
+  // Run Discord parser test when component mounts
+  useEffect(() => {
+    const testResults = runDiscordParserTests();
+    if (testResults.failedTests === 0 && testResults.passedTests > 0) {
+      console.log("All Discord parser tests passed successfully!");
+    }
+  }, []);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await refreshData();
     setTimeout(() => setIsRefreshing(false), 500);
+  };
+  
+  // Add sample signals for testing
+  const addSampleSignals = () => {
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const twoDaysAgo = new Date(now);
+    twoDaysAgo.setDate(now.getDate() - 2);
+    
+    const sampleData = [
+      {
+        id: Math.floor(Math.random() * 10000),
+        ticker: "BTC",
+        entryPrice: 67500,
+        targetPrice: 70000,
+        stopLossPrice: 65200,
+        isLong: true,
+        risk: 1,
+        messageContent: "Longed BTC at 67500 sl- 65200 (1% risk) TPs: 70000",
+        messageId: "sample_" + Date.now() + "_1",
+        discordChannelId: "sample_channel",
+        processed: true,
+        executed: false,
+        ignored: false,
+        signalDate: now,
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: Math.floor(Math.random() * 10000),
+        ticker: "ETH",
+        entryPrice: 3520,
+        targetPrice: 3300,
+        stopLossPrice: 3650,
+        isLong: false,
+        risk: 1,
+        messageContent: "Shorted ETH at 3520 sl- 3650 TPs: 3300",
+        messageId: "sample_" + Date.now() + "_2",
+        discordChannelId: "sample_channel",
+        processed: true,
+        executed: true,
+        ignored: false,
+        signalDate: yesterday,
+        createdAt: yesterday,
+        updatedAt: yesterday
+      },
+      {
+        id: Math.floor(Math.random() * 10000),
+        ticker: "SOL",
+        entryPrice: 150.25,
+        targetPrice: 160,
+        stopLossPrice: 145.5,
+        isLong: true,
+        risk: 1,
+        messageContent: "SOL Entry: 150.25 SL: 145.5 TPs: 160",
+        messageId: "sample_" + Date.now() + "_3",
+        discordChannelId: "sample_channel",
+        processed: true,
+        executed: false,
+        ignored: true,
+        signalDate: twoDaysAgo,
+        createdAt: twoDaysAgo,
+        updatedAt: twoDaysAgo
+      }
+    ];
+    
+    setSampleSignals(prev => [...prev, ...sampleData]);
+    
+    toast({
+      title: "Sample Signals Added",
+      description: `Added ${sampleData.length} sample signals for testing`,
+    });
   };
 
   const filteredSignals = allSignals.filter(signal => {
@@ -91,6 +180,15 @@ export default function DiscordSignals() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold">Discord Trade Signals</h2>
             <div className="flex items-center space-x-2">
+              <Button 
+                variant="outline"
+                size="sm"
+                onClick={addSampleSignals}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Sample Signals
+              </Button>
+            
               <Select value={timeFilter} onValueChange={setTimeFilter}>
                 <SelectTrigger className="w-[120px]">
                   <SelectValue placeholder="Time Period" />

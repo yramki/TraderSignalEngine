@@ -19,18 +19,36 @@ interface SignalCardProps {
 export default function SignalCard({ signal }: SignalCardProps) {
   const { executeTrade, ignoreSignal } = useAppContext();
   const [isExecuting, setIsExecuting] = useState(false);
+  const [localExecuted, setLocalExecuted] = useState(signal.executed || false);
+  const [localIgnored, setLocalIgnored] = useState(signal.ignored || false);
 
   const handleExecuteTrade = async () => {
     setIsExecuting(true);
     try {
-      await executeTrade(signal.id);
+      // Check if this is a sample signal (ID is very large random number)
+      if (signal.id > 1000) {
+        // For sample signals, we'll just update local state
+        setTimeout(() => {
+          setLocalExecuted(true);
+        }, 500);
+      } else {
+        // Real signal from the API
+        await executeTrade(signal.id);
+      }
     } finally {
       setIsExecuting(false);
     }
   };
 
   const handleIgnoreSignal = async () => {
-    await ignoreSignal(signal.id);
+    // Check if this is a sample signal (ID is very large random number)
+    if (signal.id > 1000) {
+      // For sample signals, we'll just update local state
+      setLocalIgnored(true);
+    } else {
+      // Real signal from the API
+      await ignoreSignal(signal.id);
+    }
   };
 
   return (
