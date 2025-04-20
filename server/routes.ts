@@ -9,6 +9,11 @@ import { phemexService } from "./services/phemexService";
 export async function registerRoutes(app: Express): Promise<Server> {
   // API Routes
   
+  // Test route
+  app.get("/api/ping", (req, res) => {
+    res.json({ status: "ok", message: "API is working", timestamp: new Date() });
+  });
+  
   // Configuration routes
   app.get("/api/config", async (req, res) => {
     const config = await storage.getTradeConfig();
