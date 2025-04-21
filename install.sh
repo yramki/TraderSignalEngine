@@ -29,15 +29,14 @@ create_requirements_file() {
 # Requirements file for Discord Trading Signal Scraper
 
 # Core dependencies
-pyautogui==0.9.54
-opencv-python==4.8.0.76
-pytesseract==0.3.10
-numpy==1.24.3
-Pillow==10.0.0
-requests==2.31.0
+pyautogui
+opencv-python
+pytesseract
+numpy
+Pillow
+requests
 
 # UI dependencies
-tk==0.1.0
 configparser
 pycryptodome
 EOF
@@ -105,7 +104,7 @@ create_directories() {
 install_modules() {
     print_status "Installing Python modules..."
     
-    # Check if we're in a externally managed environment
+    # Check if we're in an externally managed environment
     if python3 -m pip install --dry-run -r requirements.txt 2>&1 | grep -q "externally-managed-environment"; then
         print_warning "Detected externally managed environment."
         print_status "Creating a virtual environment to install dependencies."
@@ -121,11 +120,34 @@ install_modules() {
         # Activate the virtual environment
         source venv/bin/activate
         
+        # For Python 3.13+, we need to ensure setuptools is installed first
+        PYTHON_VERSION=$(python --version | cut -d' ' -f2)
+        PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d'.' -f1)
+        PYTHON_MINOR=$(echo $PYTHON_VERSION | cut -d'.' -f2)
+        
+        if [ "$PYTHON_MAJOR" -ge 3 ] && [ "$PYTHON_MINOR" -ge 13 ]; then
+            print_status "Detected Python 3.13+, installing setuptools first..."
+            pip install --upgrade pip setuptools wheel
+        fi
+        
         # Install in the virtual environment
+        print_status "Installing required packages..."
         pip install -r requirements.txt
         if [ $? -ne 0 ]; then
-            print_error "Failed to install Python modules in virtual environment."
-            exit 1
+            print_warning "First attempt failed. Trying to install packages one by one..."
+            
+            # Try installing packages one by one
+            while read -r package; do
+                # Skip comments and empty lines
+                [[ $package =~ ^#.*$ ]] && continue
+                [[ -z "$package" ]] && continue
+                
+                print_status "Installing $package..."
+                pip install $package
+                if [ $? -ne 0 ]; then
+                    print_warning "Failed to install $package, continuing with other packages."
+                fi
+            done < requirements.txt
         fi
         
         # Create a script to activate the environment
@@ -146,11 +168,23 @@ EOF
         python3 -m pip install -r requirements.txt
         
         if [ $? -ne 0 ]; then
-            print_error "Failed to install Python modules. Please try installing manually."
-            exit 1
+            print_warning "Standard installation failed. Trying to install packages one by one..."
+            
+            # Try installing packages one by one
+            while read -r package; do
+                # Skip comments and empty lines
+                [[ $package =~ ^#.*$ ]] && continue
+                [[ -z "$package" ]] && continue
+                
+                print_status "Installing $package..."
+                python3 -m pip install $package
+                if [ $? -ne 0 ]; then
+                    print_warning "Failed to install $package, continuing with other packages."
+                fi
+            done < requirements.txt
+        else
+            print_status "Modules installed successfully using standard pip"
         fi
-        
-        print_status "Modules installed successfully using standard pip"
     fi
     
     # Mark requirements as installed

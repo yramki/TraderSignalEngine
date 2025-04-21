@@ -1,84 +1,111 @@
-# Discord Trading Signal Scraper with Enhanced Trading UI
+# Discord Trading Signal Scraper
 
 A trading automation platform that executes trades on Phemex by parsing Discord signals and implementing user-defined trading parameters.
 
 ## Key Features
 
-- **Screen Capture**: Monitors Discord for trading signals
-- **Signal Parsing**: Extracts trading information from captured signals
-- **Automated Trading**: Executes trades on Phemex based on signals
-- **Trader Filtering**: Filter signals by specific traders
-- **"Unlock Content" Detection**: Automatically clicks Discord's "Unlock Content" buttons
-- **Continuous Monitoring**: Auto-scrolls to check for new messages
-- **Risk Management**: Configurable position sizes and leverage
-- **History Tracking**: Keep track of all signals and trades
+- **Discord Message Monitoring**: Automatically captures and processes trading signals from Discord
+- **Trader Filtering**: Target specific traders you trust
+- **Enhanced Trading Parameters**: Configure amount per trade, stop loss, take profit, and more
+- **Market Cap Filtering**: Only execute trades for assets above your minimum market cap threshold
+- **Automated Trade Execution**: Execute trades on Phemex with customizable leverage and position sizes
+- **User-friendly Interface**: Easily configure all parameters through a simple GUI
 
-## Enhanced Trading Parameters UI
+## Installation
 
-The new Enhanced Trading UI provides an intuitive interface for configuring advanced trading parameters:
+### Prerequisites
 
-### Position Size Settings
-- **Amount per Trade ($)**: Determines how much USD value you wish to invest in each trade signal.
-- **Max Position Size ($)**: Limits the maximum USD value per position.
+- Python 3.6 or newer
+- pip (Python package manager)
+- For GUI: Tkinter support for Python
+- For Discord screen capture: Python OpenCV and PyAutoGUI
 
-### Risk Management Settings
-- **Stop Loss (%)**: Defines the percentage loss at which your position will automatically close to prevent further losses.
-- **Take Profit (%)**: Defines the percentage gain at which your position will automatically close to secure profits.
-- **Enable Stop Loss**: Toggle to enable/disable stop loss for all trades.
-- **Enable Take Profit**: Toggle to enable/disable take profit for all trades.
+### Quick Start
 
-### Leverage Settings
-- **Default Leverage**: Sets the default leverage multiplier for trades.
-- **Use Signal Leverage**: Use the leverage specified in the signal when available.
-- **Maximum Leverage**: Caps the maximum leverage allowed for any trade.
+1. Clone or download this repository
+2. Run the installation script:
 
-### Market Filtering Settings
-- **Minimum Market Cap ($)**: Filter that prevents trading on low-capitalization cryptocurrencies.
-- **Enable Market Cap Filter**: Toggle to enable/disable filtering by market cap.
+```bash
+chmod +x install.sh
+./install.sh
+```
 
-### Auto Trading Settings
-- **Enable Automatic Trading**: When enabled, trades will execute without confirmation.
-- **Automatically Close Trades**: When enabled, trades will automatically close at stop loss/take profit levels.
-- **Max Simultaneous Trades**: Limits the number of open positions at any time.
+This will:
+- Install required dependencies
+- Create configuration files
+- Set up logs directory
 
-## Running the Enhanced UI
+> **Note for Python 3.13+ users**: Please see [PYTHON_313_NOTE.md](PYTHON_313_NOTE.md) for special installation instructions.
 
-To run the enhanced trading UI, execute:
+## Running the Application
+
+### Testing the Parameters (No GUI)
+
+To test the trading parameters without a GUI:
+
+```bash
+python3 test_headless.py
+```
+
+This provides a command-line interface to:
+- View current parameters
+- Modify parameters
+- Simulate trading scenarios
+- Save your configuration
+
+### Full Application (with GUI)
+
+To run the full application with GUI:
 
 ```bash
 ./run_enhanced_trading_ui.sh
 ```
 
-This script will:
-1. Create a Python virtual environment (if it doesn't exist)
-2. Install the required dependencies
-3. Launch the enhanced trading UI
+## Configuration
 
-## Testing
+The main configuration is stored in `config.ini` and includes:
 
-To test the enhanced features, run:
+### Trading Parameters
+
+- `amount_per_trade`: Base amount to invest per trade
+- `max_position_size`: Maximum position size limit
+- `stop_loss_percentage`: Stop loss percentage from entry
+- `take_profit_percentage`: Take profit percentage from entry
+- `default_leverage`: Default leverage when not using signal leverage
+- `enable_stop_loss`: Enable/disable stop loss orders
+- `enable_take_profit`: Enable/disable take profit orders
+- `use_signal_leverage`: Use leverage suggested in signal or use default
+- `max_leverage`: Maximum allowed leverage
+- `min_market_cap`: Minimum market cap for assets to trade
+- `enable_market_cap_filter`: Enable/disable market cap filtering
+- `enable_auto_trading`: Toggle automatic trade execution
+- `auto_close_trades`: Automatically close trades on TP/SL
+- `max_simultaneous_trades`: Maximum number of open trades
+
+### Discord Parameters
+
+- `click_hidden_messages`: Click to reveal hidden messages
+- `monitor_specific_channel`: Focus on a specific Discord channel
+- `auto_scroll`: Automatically scroll to check for new messages
+
+### Phemex API Parameters
+
+- `api_key`: Your Phemex API key
+- `api_secret`: Your Phemex API secret
+- `testnet`: Use testnet (true) or live trading (false)
+
+## Demo
+
+The repository includes a non-interactive demo that shows how different parameter configurations affect trade execution:
 
 ```bash
-./test_enhanced.sh
+python3 demo_trading_parameters.py
 ```
 
-This script tests:
-- Trader filtering functionality
-- Unlock button detection
-- Continuous channel monitoring
-- Signal parsing
-- Trading integration
+## Contributing
 
-## Requirements
-
-- Python 3.8+
-- Tesseract OCR (for text recognition)
-- Required Python packages (installed automatically)
-
-## Disclaimer
-
-This software is for educational purposes only. Trading cryptocurrency involves significant risk. Always do your own research and never trade more than you can afford to lose.
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-MIT License
+This project is licensed under the MIT License - see the LICENSE file for details.
