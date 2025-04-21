@@ -174,9 +174,29 @@ class EnhancedTradingUI:
         trader_frame = ttk.LabelFrame(middle_frame, text="Target Traders", padding=10)
         trader_frame.pack(fill=tk.Y, padx=5, pady=5, side=tk.RIGHT)
         
+        # Help text for trader filtering
+        trader_help_frame = ttk.Frame(trader_frame)
+        trader_help_frame.pack(fill=tk.X, padx=5, pady=5)
+        help_text = ("Add trader handles to filter signals\n"
+                     "and only click 'Unlock Content' buttons\n"
+                     "for traders in your list.\n\n"
+                     "Format: @trader1, @trader2, etc.")
+        help_label = ttk.Label(trader_help_frame, text=help_text, justify=tk.LEFT, wraplength=180)
+        help_label.pack(fill=tk.X)
+        
         # Target traders list
-        self.traders_listbox = tk.Listbox(trader_frame, width=20, height=15)
+        self.traders_listbox = tk.Listbox(trader_frame, width=20, height=12)
         self.traders_listbox.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
+        
+        # Create a right-click context menu
+        self.trader_menu = tk.Menu(trader_frame, tearoff=0)
+        self.trader_menu.add_command(label="Remove", command=self._remove_trader)
+        self.trader_menu.add_command(label="Copy", command=self._copy_trader)
+        self.trader_menu.add_separator()
+        self.trader_menu.add_command(label="Clear All", command=self._clear_traders)
+        
+        # Bind right-click to show context menu
+        self.traders_listbox.bind("<Button-3>", self._show_trader_menu)
         
         traders_scrollbar = ttk.Scrollbar(trader_frame, orient=tk.VERTICAL, command=self.traders_listbox.yview)
         traders_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -372,31 +392,37 @@ class EnhancedTradingUI:
         self.enable_filtering_var = tk.BooleanVar(value=self.config.get_traders('enable_filtering', 'false').lower() == 'true')
         enable_filtering_check = ttk.Checkbutton(discord_frame, variable=self.enable_filtering_var)
         enable_filtering_check.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(discord_frame, text="Only process signals from traders in your target list").grid(row=0, column=2, sticky=tk.W, padx=5, pady=5)
         
         ttk.Label(discord_frame, text="Click Hidden Messages:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
         self.click_hidden_var = tk.BooleanVar(value=self.config.get_discord('click_hidden_messages', 'true').lower() == 'true')
         click_hidden_check = ttk.Checkbutton(discord_frame, variable=self.click_hidden_var)
         click_hidden_check.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(discord_frame, text="Automatically click 'Unlock Content' buttons (trader filtering applies)").grid(row=1, column=2, sticky=tk.W, padx=5, pady=5)
         
         ttk.Label(discord_frame, text="Monitor Specific Channel:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
         self.monitor_channel_var = tk.BooleanVar(value=self.config.get_discord('monitor_specific_channel', 'true').lower() == 'true')
         monitor_channel_check = ttk.Checkbutton(discord_frame, variable=self.monitor_channel_var)
         monitor_channel_check.grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(discord_frame, text="Focus on a specific channel instead of monitoring all channels").grid(row=2, column=2, sticky=tk.W, padx=5, pady=5)
         
         ttk.Label(discord_frame, text="Channel Name:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
         self.channel_name_var = tk.StringVar(value=self.config.get_discord('channel_name', 'trades'))
         channel_name_entry = ttk.Entry(discord_frame, textvariable=self.channel_name_var, width=20)
         channel_name_entry.grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(discord_frame, text="Name of the specific Discord channel to monitor").grid(row=3, column=2, sticky=tk.W, padx=5, pady=5)
         
         ttk.Label(discord_frame, text="Auto Scroll:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
         self.auto_scroll_var = tk.BooleanVar(value=self.config.get_discord('auto_scroll', 'true').lower() == 'true')
         auto_scroll_check = ttk.Checkbutton(discord_frame, variable=self.auto_scroll_var)
         auto_scroll_check.grid(row=4, column=1, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(discord_frame, text="Automatically scroll Discord to check for new messages").grid(row=4, column=2, sticky=tk.W, padx=5, pady=5)
         
         ttk.Label(discord_frame, text="Scroll Interval (seconds):").grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
         self.scroll_interval_var = tk.DoubleVar(value=float(self.config.get_discord('scroll_interval', 30.0)))
         scroll_interval_entry = ttk.Entry(discord_frame, textvariable=self.scroll_interval_var, width=10)
         scroll_interval_entry.grid(row=5, column=1, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(discord_frame, text="Time between automatic scrolls").grid(row=5, column=2, sticky=tk.W, padx=5, pady=5)
         
         # Phemex API settings
         ttk.Label(phemex_frame, text="API Key:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
@@ -526,6 +552,39 @@ class EnhancedTradingUI:
             self._update_status("Idle", "gray")
             self._log_message("Stopped monitoring Discord")
     
+    def _show_trader_menu(self, event):
+        """Show the trader context menu on right-click"""
+        # Select the item under the cursor
+        item_index = self.traders_listbox.nearest(event.y)
+        if item_index >= 0:
+            # Select the item
+            self.traders_listbox.selection_clear(0, tk.END)
+            self.traders_listbox.selection_set(item_index)
+            self.traders_listbox.activate(item_index)
+            # Show the popup menu
+            self.trader_menu.post(event.x_root, event.y_root)
+    
+    def _copy_trader(self):
+        """Copy the selected trader to clipboard"""
+        selected = self.traders_listbox.curselection()
+        if not selected:
+            return
+        
+        trader = self.traders_listbox.get(selected)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(trader)
+        self._log_message(f"Copied trader {trader} to clipboard", "INFO")
+    
+    def _clear_traders(self):
+        """Clear all traders from the list"""
+        if not self.traders_listbox.size():
+            return
+            
+        if messagebox.askyesno("Confirm", "Are you sure you want to clear all target traders?"):
+            self.traders_listbox.delete(0, tk.END)
+            self._save_target_traders()
+            self._log_message("Cleared all traders from the target list", "WARNING")
+    
     def _toggle_auto_trading(self):
         """Toggle automatic trading on/off"""
         auto_trading = self.enable_auto_trading_var.get()
@@ -547,6 +606,12 @@ class EnhancedTradingUI:
         # Add @ if not present
         if not trader.startswith('@'):
             trader = '@' + trader
+            self._log_message(f"Added @ prefix to trader handle: {trader}", "INFO")
+        
+        # Basic validation - ensure we have alphanumeric characters after @
+        if len(trader) <= 1 or not any(c.isalnum() for c in trader[1:]):
+            messagebox.showwarning("Warning", "Invalid trader handle. Please enter a valid handle (e.g., @trader123)")
+            return
         
         # Check if already in list
         current_traders = list(self.traders_listbox.get(0, tk.END))
@@ -558,6 +623,7 @@ class EnhancedTradingUI:
         self.traders_listbox.insert(tk.END, trader)
         self._save_target_traders()
         self.trader_var.set("")  # Clear entry
+        self._log_message(f"Added trader {trader} to the filter list", "SUCCESS")
     
     def _remove_trader(self):
         """Remove a trader from the target list"""
@@ -566,17 +632,38 @@ class EnhancedTradingUI:
             messagebox.showwarning("Warning", "Please select a trader to remove")
             return
         
+        # Get the trader handle before removing
+        trader = self.traders_listbox.get(selected)
+        
         # Remove from listbox and save
         self.traders_listbox.delete(selected)
         self._save_target_traders()
+        self._log_message(f"Removed trader {trader} from the filter list", "WARNING")
     
     def _save_target_traders(self):
         """Save the target traders list to the configuration"""
         traders = list(self.traders_listbox.get(0, tk.END))
         self.config.set_target_traders(traders)
+        
+        # Update the enable filtering setting as well
+        enable_filtering = self.enable_filtering_var.get()
+        self.config.set_traders('enable_filtering', str(enable_filtering).lower())
+        
         self.config.save()
+        
+        # Update the screen capture module
         self.screen_capture.set_target_traders(traders)
-        self._log_message(f"Updated target traders list: {', '.join(traders)}")
+        
+        # Log the changes with clear information about what was updated
+        if traders:
+            self._log_message(f"Updated target traders list: {', '.join(traders)}")
+        else:
+            self._log_message("Cleared target traders list", "WARNING")
+        
+        if enable_filtering:
+            self._log_message("Trader filtering enabled - only processing signals from target traders", "INFO")
+        else:
+            self._log_message("Trader filtering disabled - processing signals from all traders", "INFO")
     
     def _save_trading_params(self):
         """Save trading parameters to the configuration"""

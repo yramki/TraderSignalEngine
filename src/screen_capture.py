@@ -138,12 +138,29 @@ class ScreenCapture:
         
         # First, look for messages from target traders
         trader_regions = self._find_trader_messages(screenshot_cv)
+        found_traders = []  # Store which trader was found for each region
         
+        # Extract texts from trader regions to identify which trader is in which region
+        for i, region in enumerate(trader_regions):
+            region_img = self._extract_region(screenshot_cv, region)
+            gray = cv2.cvtColor(region_img, cv2.COLOR_BGR2GRAY)
+            gray = self._preprocess_for_ocr(gray)
+            text = self._extract_text(gray)
+            
+            # Check which trader this region belongs to
+            for trader in self.target_traders:
+                if trader in text:
+                    found_traders.append(trader)
+                    break
+            else:
+                found_traders.append(None)  # No specific trader identified
+        
+        # If no traders specified or found, look for any trading signals
         if not trader_regions and not self.target_traders:
-            # If no target traders specified, look for any trading signals
             trader_regions = self._find_trading_signals(screenshot_cv)
+            found_traders = [None] * len(trader_regions)  # No specific traders for these regions
         
-        for region in trader_regions:
+        for i, region in enumerate(trader_regions):
             # Extract the region containing the potential trading signal
             signal_img = self._extract_region(screenshot_cv, region)
             
@@ -151,6 +168,24 @@ class ScreenCapture:
             unlock_button_region = self._find_unlock_button(signal_img)
             
             if unlock_button_region is not None:
+                # Only click button if it's from a trader in our target list or if no filter is applied
+                trader = found_traders[i]
+                
+                if trader is not None:
+                    # We have a specific trader - only click if in our list
+                    if trader in self.target_traders:
+                        logger.info(f"Found unlock button from target trader: {trader}")
+                    else:
+                        logger.info(f"Ignoring unlock button from non-target trader")
+                        continue  # Skip clicking this button
+                elif not self.target_traders:
+                    # No filtering applied, process all signals
+                    logger.info("No trader filtering applied, processing all signals")
+                else:
+                    # We have target traders but couldn't identify which trader this is from
+                    logger.info("Couldn't identify trader for this message, skipping")
+                    continue  # Skip this button
+                
                 # Calculate the absolute position of the button
                 x, y, w, h = region
                 button_x, button_y, button_w, button_h = unlock_button_region
