@@ -1,0 +1,78 @@
+{
+  "dependencies": [
+    {
+      "name": "customtkinter",
+      "version": "5.2.0",
+      "description": "Modern UI library based on Tkinter",
+      "required": true
+    },
+    {
+      "name": "matplotlib",
+      "version": "3.7.1",
+      "description": "Data visualization library for charts and graphs",
+      "required": true
+    },
+    {
+      "name": "pandas",
+      "version": "2.0.0",
+      "description": "Data analysis and manipulation library",
+      "required": true
+    },
+    {
+      "name": "pyautogui",
+      "version": "0.9.53",
+      "description": "GUI automation library for screen interaction",
+      "required": true
+    },
+    {
+      "name": "opencv-python",
+      "version": "4.7.0.72",
+      "description": "Computer vision library for image processing",
+      "required": true
+    },
+    {
+      "name": "pytesseract",
+      "version": "0.3.10",
+      "description": "Optical character recognition (OCR) tool",
+      "required": true
+    },
+    {
+      "name": "numpy",
+      "version": "1.24.3",
+      "description": "Numerical computation library",
+      "required": true
+    },
+    {
+      "name": "Pillow",
+      "version": "9.5.0",
+      "description": "Python Imaging Library for image processing",
+      "required": true
+    },
+    {
+      "name": "requests",
+      "version": "2.29.0",
+      "description": "HTTP library for API requests",
+      "required": true
+    }
+  ],
+  "devDependencies": [
+    {
+      "name": "pytest",
+      "version": "7.3.1",
+      "description": "Testing framework",
+      "required": false
+    },
+    {
+      "name": "black",
+      "version": "23.3.0",
+      "description": "Code formatter",
+      "required": false
+    },
+    {
+      "name": "pyinstaller",
+      "version": "5.10.1",
+      "description": "Package application into standalone executables",
+      "required": false
+    }
+  ]
+}
