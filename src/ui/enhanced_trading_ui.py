@@ -41,6 +41,36 @@ class EnhancedTradingUI:
         self.traders_listbox = None
         self.log_text = None
         self.status_label = None
+        
+        # These variables will be initialized in run() after the root window is created
+        self.trader_var = None
+        self.amount_per_trade_var = None
+        self.max_position_var = None
+        self.stop_loss_pct_var = None
+        self.take_profit_pct_var = None
+        self.stop_loss_var = None
+        self.take_profit_var = None
+        self.leverage_var = None
+        self.use_signal_leverage_var = None
+        self.max_leverage_var = None
+        self.min_market_cap_var = None
+        self.enable_market_cap_filter_var = None
+        self.enable_auto_trading_var = None
+        self.auto_close_trades_var = None
+        self.max_trades_var = None
+        
+        self.logger = logging.getLogger(__name__)
+    
+    def run(self):
+        """
+        Start the Enhanced Trading UI
+        """
+        # Create the main window
+        self.root = tk.Tk()
+        self.root.title("Enhanced Discord Trading Signal Scraper")
+        self.root.geometry("1000x700")
+        
+        # Now that we have a root window, we can initialize the tkinter variables
         self.trader_var = tk.StringVar()
         
         # Trading parameters
@@ -58,17 +88,6 @@ class EnhancedTradingUI:
         self.enable_auto_trading_var = tk.BooleanVar(value=self.config.get_trading('enable_auto_trading', 'false').lower() == 'true')
         self.auto_close_trades_var = tk.BooleanVar(value=self.config.get_trading('auto_close_trades', 'true').lower() == 'true')
         self.max_trades_var = tk.IntVar(value=int(self.config.get_trading('max_simultaneous_trades', 5)))
-        
-        self.logger = logging.getLogger(__name__)
-    
-    def run(self):
-        """
-        Start the Enhanced Trading UI
-        """
-        # Create the main window
-        self.root = tk.Tk()
-        self.root.title("Enhanced Discord Trading Signal Scraper")
-        self.root.geometry("1000x700")
         
         # Create the main notebook (tabbed interface)
         notebook = ttk.Notebook(self.root)
