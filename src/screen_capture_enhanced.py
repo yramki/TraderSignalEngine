@@ -166,8 +166,15 @@ class ScreenCapture:
             click_y = abs_button_y + random_offset_y
             
             # Click the button - force a click even if we're not sure about the trader
-            logger.info(f"🖱️ CLICKING: 'Unlock Content' button at ({click_x}, {click_y})")
-            pyautogui.click(click_x, click_y)
+            logger.info(f"🖱️ ATTEMPTING TO CLICK: 'Unlock Content' button at ({click_x}, {click_y})")
+            try:
+                # Move to position first, then click
+                pyautogui.moveTo(click_x, click_y, duration=0.1)
+                time.sleep(0.1)
+                pyautogui.click()
+                logger.info(f"✅ CLICK SUCCESSFUL: 'Unlock Content' button clicked at ({click_x}, {click_y})")
+            except Exception as e:
+                logger.error(f"❌ CLICK FAILED: Error clicking button: {e}", exc_info=True)
             
             # Wait for content to appear - add longer delay to ensure content loads
             time.sleep(1.5)
@@ -467,18 +474,25 @@ class ScreenCapture:
         pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
         full_text = pytesseract.image_to_string(pil_image)
         
+        # Log full text for debugging
+        logger.debug(f"OCR TEXT (full screen): {full_text[:200]}...")
+        
         # Expanded text variations to catch more potential buttons
         button_variations = [
             "Unlock Content", "UnlockContent", "Unlock", "UNLOCK CONTENT", 
-            "unlock content", "Unlock content", "Press to unlock", "Click to unlock"
+            "unlock content", "Unlock content", "Press to unlock", "Click to unlock",
+            "Press the button to unlock"
         ]
         
         button_text_found = False
         for var in button_variations:
             if var.lower() in full_text.lower():
-                logger.info(f"Text '{var}' detected in image! Looking for button contours...")
+                logger.info(f"✓ TEXT FOUND: '{var}' text detected in image! Looking for button contours...")
                 button_text_found = True
                 break
+                
+        if not button_text_found:
+            logger.info("⚠️ No button text variations found in this frame")
             
         # Process all blue contours to find button-like shapes
         # Filter contours by size and shape (looking for button-like rectangles)
