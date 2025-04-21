@@ -930,21 +930,65 @@ class EnhancedTradingUI:
                                     self._log_message(f"UI Status: Channel detection inferred from context ✓", level="INFO")
                                 # Third - fallback to any indicators
                                 elif discord_detected:
-                                    server_indicators = ["'Wealth Group' server", "Target server 'Wealth Group'"]
-                                    channel_indicators = ["trades channel", "# | trades", "# trades", "channel: trades"]
+                                    server_indicators = ["'Wealth Group' server", "Target server 'Wealth Group'", "Wealth Group Discord", "WG server"]
+                                    
+                                    # Expanded channel indicators with more variations and trading-related terms
+                                    channel_indicators = [
+                                        "trades channel", "# | trades", "# trades", "channel: trades", 
+                                        "trading channel", "signals channel", "trade signals", "channel trades",
+                                        "trading-signals", "trade-signals", "signal-trades", "#trades",
+                                        "trades", "trading", "signals", "active-futures", "active-spot",
+                                        "trade channel", "#trading", "trader mentions", "channel-trades"
+                                    ]
                                     
                                     # Check for server indicators
-                                    server_detected = any(indicator in recent_log for indicator in server_indicators)
+                                    server_found = any(indicator in recent_log for indicator in server_indicators)
+                                    if server_found:
+                                        server_detected = True
+                                        self._log_message(f"Server 'Wealth Group' detected in logs", level="DEBUG")
                                     
-                                    # Check for channel indicators
-                                    channel_detected = any(indicator in recent_log for indicator in channel_indicators)
+                                    # Check for channel indicators with more patterns
+                                    channel_found = any(indicator in recent_log for indicator in channel_indicators)
+                                    if channel_found:
+                                        channel_detected = True
+                                        self._log_message(f"Channel 'trades' detected in logs", level="DEBUG")
+                                        
+                                    # Additional checks for likely channel indicators
+                                    if "Unlock Content" in recent_log or "unlock button" in recent_log.lower():
+                                        # Unlock buttons are most likely in the trades channel
+                                        channel_detected = True
+                                        self._log_message(f"Channel 'trades' inferred from Unlock Content buttons", level="DEBUG")
+                                        
+                                    # If we detect any trader names, it's likely we're in the right channel
+                                    for trader in ["@Eliz", "@Johnny", "@Woods", "@Michele"]:
+                                        if trader in recent_log:
+                                            channel_detected = True
+                                            self._log_message(f"Channel 'trades' inferred from trader mention: {trader}", level="DEBUG")
+                                            break
+                                    
+                                    # Important log pattern: "Found indicators: Discord, Wealth Group, trades channel..."
+                                    if ("Found indicators: Discord" in recent_log and 
+                                        ("Wealth Group" in recent_log or "Target server" in recent_log) and 
+                                        ("trades channel" in recent_log or "trades" in recent_log)):
+                                        server_detected = True
+                                        channel_detected = True
+                                        self._log_message("Server and channel detected based on indicators list", level="INFO")
+                                        
+                                    # If we see "INFO - ✅ Discord 'Wealth Group' server and 'trades' channel detected!" pattern
+                                    # from the logs you showed me
+                                    if ("INFO - ✅ Discord 'Wealth Group' server and 'trades' channel detected!" in recent_log or
+                                        "INFO -    Found indicators: Discord, Wealth Group, trades channel" in recent_log):
+                                        server_detected = True
+                                        channel_detected = True
+                                        self._log_message("Server and channel detected via INFO log pattern", level="INFO")
                                     
                                     # Presence of trader mentions in correct context is a good sign
                                     trader_detected = "👤 Target trader mention detected:" in recent_log
                                     
-                                    # If we detected Discord + Server + Traders, then we're likely in the right place
+                                    # If we detected Discord + (Server or Traders), then we're likely in the right place
                                     # even if explicit channel detection failed
-                                    if server_detected and trader_detected:
+                                    if discord_detected and (server_detected or trader_detected):
+                                        # In this case we can infer the channel
                                         channel_detected = True
                                     
                                     self._log_message(f"UI Status update: Discord=True, Server={server_detected}, Channel={channel_detected}", level="INFO")

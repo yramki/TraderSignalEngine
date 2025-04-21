@@ -231,77 +231,137 @@ def focus_discord():
         logger.warning("Could not focus Discord application")
         return False
 
-def click_button_by_text(button_text):
+def click_button_by_text(button_text, return_coordinates=False):
     """
     Try to click a button with specific text using macOS Accessibility APIs
     This is more reliable than looking for specific colors or coordinates
     
     Args:
         button_text: Text on the button to click
+        return_coordinates: If True, returns the coordinates of the button instead of clicking
         
     Returns:
-        bool: True if button was found and clicked
+        bool or tuple: True if button was found and clicked, or (x, y) coordinates if return_coordinates=True
     """
+    # Allow for multiple text patterns to match with
+    if isinstance(button_text, str):
+        button_texts = [button_text]
+    else:
+        button_texts = button_text  # Assume it's an iterable of strings
+    
+    # Build the text comparison part
+    text_comparisons = []
+    for text in button_texts:
+        text_comparisons.append(f'name of aButton contains "{text}"')
+    text_comparison_expr = " or ".join(text_comparisons)
+    
+    # Add a command to check the screen dimensions
+    screen_size_cmd = '''
+    -- Get screen size for validation
+    set screenBounds to bounds of window of desktop
+    set screenWidth to item 3 of screenBounds
+    set screenHeight to item 4 of screenBounds
+    '''
+    
+    # Add button bounds validation
+    button_validation = '''
+    -- Validate button is on screen 
+    on isButtonOnScreen(buttonX, buttonY)
+        if buttonX < 0 or buttonX > screenWidth or buttonY < 0 or buttonY > screenHeight then
+            return false
+        end if
+        return true
+    end isButtonOnScreen
+    '''
+    
+    action_command = 'click aButton' if not return_coordinates else 'return {(position of aButton), size of aButton}'
+    
     script = f'''
     tell application "System Events"
         tell process "Discord"
             set buttonFound to false
+            set buttonInfo to {{-1, -1}}
             
-            -- Try to find button by its name/title
+            {screen_size_cmd}
+            {button_validation}
+            
+            -- Try to find button by its name/title (most accurate)
             try
                 set allButtons to every button
                 repeat with aButton in allButtons
-                    if name of aButton contains "{button_text}" then
-                        click aButton
-                        set buttonFound to true
-                        exit repeat
+                    if {text_comparison_expr} then
+                        -- Check if button is on screen
+                        set btnPosition to position of aButton
+                        set btnX to item 1 of btnPosition
+                        set btnY to item 2 of btnPosition
+                        
+                        if my isButtonOnScreen(btnX, btnY) then
+                            {action_command}
+                            set buttonInfo to {{btnX, btnY}}
+                            set buttonFound to true
+                            exit repeat
+                        end if
                     end if
                 end repeat
             end try
             
-            -- Try to find UI elements with the button text
+            -- Try to find UI elements with the button text (fallback)
             if not buttonFound then
                 set allElements to every UI element
                 repeat with anElement in allElements
                     try
                         if name of anElement contains "{button_text}" or description of anElement contains "{button_text}" then
-                            click anElement
-                            set buttonFound to true
-                            exit repeat
+                            -- Check if element is on screen
+                            set elemPosition to position of anElement
+                            set elemX to item 1 of elemPosition
+                            set elemY to item 2 of elemPosition
+                            
+                            if my isButtonOnScreen(elemX, elemY) then
+                                if not return_coordinates then
+                                    click anElement
+                                else
+                                    set buttonInfo to {{elemX, elemY}}
+                                end if
+                                set buttonFound to true
+                                exit repeat
+                            end if
                         end if
                     end try
                 end repeat
             end if
             
-            -- Try to find by role description (more specific to Discord UI patterns)
-            if not buttonFound then
-                set allUIElements to every UI element
-                repeat with theElement in allUIElements
-                    try
-                        set elementRole to role description of theElement
-                        set elementDesc to description of theElement
-                        
-                        -- Check both role description and value for button text
-                        if (elementRole is "button" and (description of theElement contains "{button_text}" or value of theElement contains "{button_text}")) then
-                            click theElement
-                            set buttonFound to true
-                            exit repeat
-                        end if
-                    end try
-                end repeat
+            -- Return either success boolean or coordinates based on mode
+            if return_coordinates then
+                return buttonInfo
+            else
+                return buttonFound
             end if
-            
-            return buttonFound
         end tell
     end tell
     '''
-    result = run_applescript(script)
-    if result and result.lower() == "true":
-        logger.info(f"Successfully clicked button with text '{button_text}' using accessibility APIs")
-        return True
+    # Process result based on return_coordinates flag
+    if return_coordinates:
+        try:
+            if result and "{" in result and "}" in result:
+                # Try to parse result as coordinates
+                coords_str = result.strip().replace("{", "").replace("}", "")
+                coords = [int(float(c)) for c in coords_str.split(",")]
+                if len(coords) >= 2:
+                    logger.info(f"Found button with text '{button_text}' at coordinates ({coords[0]}, {coords[1]})")
+                    return (coords[0], coords[1])
+            logger.warning(f"Could not parse button coordinates for text '{button_text}'")
+            return None
+        except Exception as e:
+            logger.error(f"Error parsing button coordinates: {e}")
+            return None
     else:
-        logger.warning(f"Could not find button with text '{button_text}' using accessibility APIs")
-        return False
+        # Standard boolean return for click mode
+        if result and result.lower() == "true":
+            logger.info(f"Successfully clicked button with text '{button_text}' using accessibility APIs")
+            return True
+        else:
+            logger.warning(f"Could not find button with text '{button_text}' using accessibility APIs")
+            return False
 
 def extract_text_from_ui(x=None, y=None, element_type=None):
     """
@@ -758,6 +818,20 @@ def test_mac_controller():
         print(f"Discord tests skipped: {e}")
     
     print("Test completed successfully")
+
+def get_button_coordinates(button_text):
+    """
+    Get the coordinates of a button with specific text using macOS Accessibility APIs
+    This is more reliable than searching by color or image patterns
+    
+    Args:
+        button_text: Text on the button to find (e.g., "Unlock Content")
+        
+    Returns:
+        tuple or None: (x, y) coordinates of the button if found, None otherwise
+    """
+    # Just use our existing click_button_by_text function with return_coordinates=True
+    return click_button_by_text(button_text, return_coordinates=True)
 
 if __name__ == "__main__":
     # Set up logging

@@ -807,30 +807,74 @@ class ScreenCapture:
         
         try:
             # Check if we have macOS-specific controller features available
-            if hasattr(input_controller, 'click_button_by_text'):
+            if hasattr(input_controller, 'focus_app'):
                 # Try to focus Discord first
                 input_controller.focus_app("Discord")
                 
                 # Try to find and click button by text directly (much more accurate than image detection)
                 unlock_button_texts = ["Unlock Content", "Press to unlock", "Click to unlock", "Unlock", "Unlock this"]
                 
-                # Try each possible button text
-                for button_text in unlock_button_texts:
-                    click_success = input_controller.click_button_by_text(button_text)
-                    if click_success:
-                        button_found_via_api = True
-                        button_click_success = True
-                        logger.info(f"✅ Successfully clicked '{button_text}' button using macOS Accessibility APIs")
-                        time.sleep(0.8)  # Wait for button click to take effect
-                        break
+                # First try using the get_button_coordinates function if available
+                # This gives us more reliable coordinate detection and validation
+                if hasattr(input_controller, 'get_button_coordinates'):
+                    logger.debug("Using enhanced coordinate detection via macOS Accessibility APIs")
+                    
+                    # Try each possible button text to find coordinates
+                    for button_text in unlock_button_texts:
+                        coords = input_controller.get_button_coordinates(button_text)
+                        if coords and len(coords) == 2 and coords[0] > 0 and coords[1] > 0:
+                            # Get screen size for validation
+                            screen_width, screen_height = pyautogui.size()
+                            
+                            # Set safe region
+                            safety_margin = 50  # pixels from the edge
+                            safe_width = screen_width - safety_margin
+                            safe_height = screen_height - safety_margin
+                            
+                            click_x, click_y = coords
+                            
+                            # Validate coordinates before using
+                            if click_x >= safe_width or click_y >= safe_height or click_x <= safety_margin or click_y <= safety_margin:
+                                logger.warning(f"⚠️ Button coordinates ({click_x}, {click_y}) outside safe region ({safety_margin}-{safe_width}x{safety_margin}-{safe_height}) - adjusting")
+                                
+                                # If coordinates are extremely off, use a fallback position
+                                if click_x > screen_width * 1.2 or click_y > screen_height * 1.2 or click_x < 0 or click_y < 0:
+                                    logger.warning("❌ Coordinates extremely out of range - using fallback center position")
+                                    click_x = screen_width // 2
+                                    click_y = screen_height // 2
+                                else:
+                                    # Clamp coordinates to safe region
+                                    click_x = max(safety_margin, min(click_x, safe_width))
+                                    click_y = max(safety_margin, min(click_y, safe_height))
+                                
+                                logger.warning(f"✓ Adjusted coordinates to ({click_x}, {click_y})")
+                                
+                            # Now we have safe coordinates, perform the click
+                            button_found_via_api = True
+                            logger.info(f"🖱️ DIRECT CLICK: Clicking button at ({click_x}, {click_y}), trader: {trader_name}, Discord time: {discord_timestamp}, detected at: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+                            
+                            # Use direct PyAutoGUI for consistent click mechanism
+                            pyautogui.moveTo(click_x, click_y, duration=0.2)
+                            time.sleep(0.1)
+                            pyautogui.click(click_x, click_y)
+                            time.sleep(0.8)  # Wait for click to register
+                            
+                            button_click_success = True
+                            button_coordinates = (click_x, click_y)
+                            logger.info(f"✅ DIRECT CLICK SUCCESSFUL: Button clicked at ({click_x}, {click_y}) for trader {trader_name}")
+                            break
                 
-                # Also try to get coordinates of button for logging purposes
-                if button_found_via_api:
-                    ui_elements = input_controller.extract_text_from_ui()
-                    for element_id, element_info in ui_elements.items():
-                        if any(text.lower() in element_info.get('text', '').lower() for text in unlock_button_texts):
-                            button_coordinates = element_info.get('position', None)
-                            logger.info(f"📍 Button detected at approximate coordinates: {button_coordinates}")
+                # If coordinate detection failed, fall back to direct click method
+                if not button_found_via_api and hasattr(input_controller, 'click_button_by_text'):
+                    logger.debug("Coordinate detection failed, trying direct click via Accessibility APIs")
+                    # Try each possible button text with direct clicking
+                    for button_text in unlock_button_texts:
+                        click_success = input_controller.click_button_by_text(button_text)
+                        if click_success:
+                            button_found_via_api = True
+                            button_click_success = True
+                            logger.info(f"✅ Successfully clicked '{button_text}' button using macOS Accessibility APIs")
+                            time.sleep(0.8)  # Wait for button click to take effect
                             break
             
             if not button_found_via_api:
@@ -1040,16 +1084,35 @@ class ScreenCapture:
                             confidence = self._match_trader_with_confidence(trader, full_message)
                             
                             if confidence > 0.6:  # Reasonably confident match
-                                logger.info(f"✅ Found target trader {trader} in message from '{sender}' [confidence: {confidence:.2f}]")
-                                logger.info(f"📱 Message content: {message_text[:100]}...")
-                                if timestamp:
-                                    logger.info(f"⏰ Message timestamp: {timestamp}")
+                                # Check for the presence of "Unlock Content" button
+                                has_unlock_button = False
+                                button_coordinates = None
                                 
-                                # If we have coordinates, add this as a region to check
-                                if coordinates:
-                                    x, y, w, h = coordinates
-                                    trader_regions.append((x, y, w, h))
-                                    logger.info(f"📍 Message region at ({x}, {y}) with size {w}x{h}")
+                                # First check via macOS APIs if available
+                                if hasattr(input_controller, 'get_button_coordinates'):
+                                    for button_text in ["Unlock Content", "Press to unlock", "Click to unlock"]:
+                                        coords = input_controller.get_button_coordinates(button_text)
+                                        if coords:
+                                            has_unlock_button = True
+                                            button_coordinates = coords
+                                            break
+                                
+                                # Only log at INFO level if there's an "Unlock Content" button
+                                if has_unlock_button:
+                                    button_info = f" with UNLOCK BUTTON at {button_coordinates} ✓" if button_coordinates else " with UNLOCK BUTTON ✓"
+                                    logger.info(f"👤 Target trader {trader} found in message from '{sender}' [confidence: {confidence:.2f}]{button_info}")
+                                    logger.info(f"📱 Message content: {message_text[:100]}...")
+                                    if timestamp:
+                                        logger.info(f"⏰ Message timestamp: {timestamp}")
+                                    
+                                    # If we have coordinates, add this as a region to check
+                                    if coordinates:
+                                        x, y, w, h = coordinates
+                                        trader_regions.append((x, y, w, h))
+                                        logger.info(f"📍 Message region at ({x}, {y}) with size {w}x{h}")
+                                else:
+                                    # Log at debug level if no button is found
+                                    logger.debug(f"Trader {trader} found in message from '{sender}' but no 'Unlock Content' button detected")
                                     
                                     # Save screenshot with the trader region highlighted
                                     screenshot_file = self._save_screenshot_with_highlight(
@@ -1158,18 +1221,36 @@ class ScreenCapture:
                         server_present = True
                         logger.debug(f"Target server '{self.target_server}' detected via UI element: '{element_text[:30]}...'")
                     
-                    # Check for channel indicators
+                    # Check for channel indicators - expanded with more pattern variations
                     channel_patterns = [
                         f"#{self.channel_name.lower()}", 
                         f"# {self.channel_name.lower()}", 
                         f"{self.channel_name.lower()} channel",
-                        "trades"
+                        f"{self.channel_name.lower()}",
+                        "trades",
+                        "channel trades",
+                        "trade channel",
+                        "trade signals",
+                        "signals",
+                        "trading",
+                        "trading-signals",
+                        "trade-signals"
                     ]
                     
+                    # If any pattern is found in the UI element text
                     for pattern in channel_patterns:
                         if pattern in element_text:
                             channel_present = True
                             logger.debug(f"Target channel '{self.channel_name}' detected via UI element: '{element_text[:30]}...'")
+                            break
+                            
+                    # Additional heuristic: If we see a message from one of our target traders
+                    # in a Discord element, we're likely in the right channel
+                    for trader in self.target_traders:
+                        trader_name = trader.lower().replace('@', '')
+                        if trader_name in element_text and "discord" in element_text.lower():
+                            channel_present = True
+                            logger.info(f"Target channel '{self.channel_name}' inferred from trader mention: '{trader_name}'")
                             break
                 
                 # Check for "Unlock Content" buttons as they typically appear in trading channels
@@ -1431,11 +1512,25 @@ class ScreenCapture:
                             f"trader_{trader.replace('@', '').replace('-', '_')}"
                         )
                         
-                        # Log detailed information with exact coordinates
-                        logger.info(f"👤 Target trader mention detected: {trader}{timestamp_info} [confidence: {confidence:.2f}]")
-                        logger.info(f"📍 Trader location: x={region_x}, y={region_y}, width={region_w}, height={region_h}")
-                        if screenshot_file:
-                            logger.info(f"📸 Saved trader detection screenshot: {screenshot_file}")
+                        # Before logging trader detection, check if there's an "Unlock Content" button nearby
+                        # Extract the region to look for the button
+                        message_with_context = screenshot[max(0, region_y-50):min(screenshot.shape[0], region_y+region_h+150), 
+                                                        max(0, region_x-50):min(screenshot.shape[1], region_x+region_w+150)]
+                        
+                        # Check for unlock button in this region
+                        unlock_button_region = self._find_unlock_button(message_with_context)
+                        has_unlock_button = unlock_button_region is not None
+                        
+                        # Only log trader detection if there's an "Unlock Content" button nearby
+                        if has_unlock_button:
+                            # Log detailed information with exact coordinates and button status
+                            logger.info(f"👤 Target trader mention detected: {trader}{timestamp_info} [confidence: {confidence:.2f}] with UNLOCK BUTTON ✓")
+                            logger.info(f"📍 Trader location: x={region_x}, y={region_y}, width={region_w}, height={region_h}")
+                            if screenshot_file:
+                                logger.info(f"📸 Saved trader detection screenshot: {screenshot_file}")
+                        else:
+                            # Just log at debug level if no button is present
+                            logger.debug(f"Trader mention found: {trader}{timestamp_info} - but no 'Unlock Content' button nearby")
                             
                         traders_found.append(trader)
                         already_matched_traders.add(trader)
