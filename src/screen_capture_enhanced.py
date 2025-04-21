@@ -224,18 +224,17 @@ class ScreenCapture:
         h, w = gray.shape
         regions = []
         
-        # For demonstration, we'll use a simple approach
-        # In a real implementation, we would use more sophisticated techniques
-        
         # Convert the screenshot to PIL Image for Tesseract
         pil_image = Image.fromarray(cv2.cvtColor(screenshot, cv2.COLOR_BGR2RGB))
         
         # Extract text using Tesseract OCR
         text = pytesseract.image_to_string(pil_image)
+        text_lower = text.lower()
         
-        # Check if any target trader is mentioned in the text
+        # Check if any target trader is mentioned in the text using flexible matching
         for trader in self.target_traders:
-            if trader in text:
+            # Use flexible matching for trader names
+            if self._match_trader(trader, text):
                 logger.info(f"Found message from target trader: {trader}")
                 # For now, return the whole screen as a region
                 # In a real implementation, we would locate the specific message
@@ -243,6 +242,40 @@ class ScreenCapture:
                 break
         
         return regions
+        
+    def _match_trader(self, trader, text):
+        """
+        Use flexible pattern matching to match trader handles
+        
+        Args:
+            trader: Trader handle to match (e.g., @Bryce)
+            text: Text to search in
+            
+        Returns:
+            bool: True if trader is found in text using flexible matching
+        """
+        # Normalize trader names for comparison
+        normalized_trader = re.sub(r'[^a-zA-Z0-9]', '', trader.lower())
+        normalized_text = text.lower()
+        
+        # Create variations to test
+        variations = [
+            trader,                                  # Original format (e.g., @Bryce)
+            trader.replace('@', '@-'),              # With hyphen (e.g., @-Bryce)
+            trader.replace('@-', '@'),              # Without hyphen (e.g., @Bryce)
+            normalized_trader,                       # Normalized (e.g., bryce)
+            '@' + normalized_trader.lstrip('@'),     # Add @ if missing
+        ]
+        
+        logger.debug(f"Looking for trader '{trader}' with variations: {', '.join(variations)}")
+        
+        # Check if any variation is in the text
+        for var in variations:
+            if var.lower() in normalized_text:
+                logger.info(f"Found trader match: {var} in text")
+                return True
+        
+        return False
     
     def _find_unlock_button(self, image):
         """
@@ -269,6 +302,8 @@ class ScreenCapture:
         # Find contours in the blue mask
         contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
+        logger.debug(f"Scanning for 'Unlock Content' buttons, found {len(contours)} potential blue elements")
+        
         # Filter contours by size and shape (looking for button-like rectangles)
         for contour in contours:
             x, y, w, h = cv2.boundingRect(contour)
@@ -282,9 +317,44 @@ class ScreenCapture:
                 # Use OCR to check if it contains "Unlock Content"
                 button_text = pytesseract.image_to_string(button_roi)
                 
+                logger.debug(f"Potential button at ({x}, {y}) detected, size: {w}x{h}, text: '{button_text}'")
+                
                 if self.unlock_button_text.lower() in button_text.lower():
-                    logger.debug(f"Found 'Unlock Content' button at ({x}, {y})")
-                    return (x, y, w, h)
+                    # Try to determine which trader this button belongs to
+                    # Extract a larger region above the button to find the trader name
+                    message_y = max(0, y - 100)  # Look 100 pixels above the button
+                    message_height = y - message_y
+                    message_x = max(0, x - 50)  # Extend a bit to the left
+                    message_width = w + 100  # Extend a bit to the right
+                    
+                    if message_height > 0:
+                        message_roi = gray[message_y:y, message_x:message_x+message_width]
+                        message_text = pytesseract.image_to_string(message_roi)
+                        
+                        # Check if any target trader is in this message
+                        trader_in_message = None
+                        for trader in self.target_traders:
+                            if self._match_trader(trader, message_text):
+                                trader_in_message = trader
+                                break
+                        
+                        if trader_in_message:
+                            logger.info(f"Found unlock button from target trader: {trader_in_message}")
+                            logger.info(f"Unlock Content button detected at ({x}, {y})")
+                            return (x, y, w, h)
+                        else:
+                            # If we're filtering for specific traders and this isn't one of them, skip
+                            if self.target_traders:
+                                logger.info(f"Ignoring unlock button from non-target trader")
+                                continue
+                            else:
+                                # If no trader filtering is active, unlock anyway
+                                logger.info(f"Unlock Content button detected (no trader filtering)")
+                                return (x, y, w, h)
+                    else:
+                        # Couldn't determine trader, but process anyway
+                        logger.info(f"Couldn't identify trader for this message, clicking unlock anyway")
+                        return (x, y, w, h)
         
         return None
     
@@ -392,15 +462,25 @@ class ScreenCapture:
         if self.target_traders:
             trader_found = False
             for trader in self.target_traders:
-                if trader in text:
+                if self._match_trader(trader, text):
+                    logger.info(f"Found target trader {trader} in signal text")
                     trader_found = True
                     break
             
             if not trader_found:
+                logger.debug("Signal not from a target trader, ignoring")
                 return False
         
         # Check if all required indicators are present
-        return all(indicator in text for indicator in self.trading_signal_indicators)
+        indicators_present = all(indicator in text for indicator in self.trading_signal_indicators)
+        
+        if indicators_present:
+            logger.info(f"Valid trading signal detected with indicators: {', '.join(self.trading_signal_indicators)}")
+        else:
+            missing = [i for i in self.trading_signal_indicators if i not in text]
+            logger.debug(f"Not a valid trading signal, missing indicators: {', '.join(missing)}")
+            
+        return indicators_present
     
     def get_signal(self, timeout=0.1):
         """
@@ -426,3 +506,18 @@ class ScreenCapture:
         """
         self.target_traders = traders
         logger.info(f"Updated target traders: {', '.join(traders)}")
+        
+        if traders:
+            logger.info("Trader filtering active - will only process signals from these traders")
+            # Log some examples of variations that will be matched
+            for trader in traders[:2]:  # Just show a couple examples to avoid log spam
+                normalized = re.sub(r'[^a-zA-Z0-9]', '', trader.lower())
+                variations = [
+                    trader,
+                    trader.replace('@', '@-'),
+                    trader.replace('@-', '@'),
+                    '@' + normalized.lstrip('@')
+                ]
+                logger.debug(f"Will recognize variations for {trader}: {', '.join(variations)}")
+        else:
+            logger.info("Trader filtering disabled - will process signals from any trader")
