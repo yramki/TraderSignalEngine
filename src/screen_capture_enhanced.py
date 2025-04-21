@@ -24,8 +24,8 @@ class ScreenCapture:
     """
     
     def __init__(self, scan_interval=2.0, click_hidden_messages=True, 
-                 target_traders=None, monitor_specific_channel=True,
-                 auto_scroll=True, scroll_interval=30.0):
+                 target_traders=None, monitor_specific_channel=True, channel_name="trades",
+                 target_server="Wealth Group", auto_scroll=True, scroll_interval=30.0):
         """
         Initialize the screen capture module
         
@@ -34,6 +34,8 @@ class ScreenCapture:
             click_hidden_messages (bool): Whether to click on hidden messages to reveal them
             target_traders (list): List of trader handles to filter (e.g., ["@yramki", "@Tareeq"])
             monitor_specific_channel (bool): Whether to focus on a specific channel
+            channel_name (str): Name of the target Discord channel to monitor (e.g., "trades")
+            target_server (str): Name of the target Discord server (e.g., "Wealth Group")
             auto_scroll (bool): Whether to automatically scroll down to check for new messages
             scroll_interval (float): Time between auto-scrolls in seconds
         """
@@ -41,6 +43,8 @@ class ScreenCapture:
         self.click_hidden_messages = click_hidden_messages
         self.target_traders = target_traders or []
         self.monitor_specific_channel = monitor_specific_channel
+        self.channel_name = channel_name
+        self.target_server = target_server
         self.auto_scroll = auto_scroll
         self.scroll_interval = scroll_interval
         self.running = False
@@ -58,6 +62,8 @@ class ScreenCapture:
         logger.info("Enhanced screen capture module initialized")
         if self.target_traders:
             logger.info(f"Filtering for traders: {', '.join(self.target_traders)}")
+        logger.info(f"Target Discord server: {self.target_server}")
+        logger.info(f"Target Discord channel: {self.channel_name}")
     
     def start(self):
         """Start the screen capture thread"""
@@ -127,52 +133,77 @@ class ScreenCapture:
     def _process_screen(self):
         """Process the current screen to find trading signals"""
         # Take a screenshot
+        logger.debug("Taking screenshot...")
         screenshot = pyautogui.screenshot()
         screenshot_np = np.array(screenshot)
         screenshot_cv = cv2.cvtColor(screenshot_np, cv2.COLOR_RGB2BGR)
         
+        # Log the checking attempt for visibility
+        logger.debug(f"📊 Checking if Discord ('{self.target_server}' server, '{self.channel_name}' channel) is visible...")
+        
         # Check if Discord is visible
         if not self._is_discord_visible(screenshot_cv):
-            logger.debug("Discord window not detected")
+            logger.warning("❌ Discord verification failed - Discord window not detected or not showing correct server/channel")
             return
+        
+        logger.info(f"✅ VERIFIED: Discord with '{self.target_server}' server and '{self.channel_name}' channel is visible")
+        
+        # First, scan the entire image for "Unlock Content" buttons directly
+        # This ensures we find all buttons even if we can't identify trader messages
+        logger.debug("Scanning full screen for 'Unlock Content' buttons...")
+        unlock_button_region = self._find_unlock_button(screenshot_cv)
+        
+        if unlock_button_region is not None:
+            # Button found directly - handle it
+            x, y, w, h = unlock_button_region
+            abs_button_x = x + w // 2
+            abs_button_y = y + h // 2
+            
+            # Click the button
+            logger.info(f"🖱️ CLICKING: 'Unlock Content' button at ({abs_button_x}, {abs_button_y})")
+            pyautogui.click(abs_button_x, abs_button_y)
+            
+            # Wait for content to appear
+            time.sleep(1.0)
+            
+            # Take a new screenshot after clicking to process the revealed content
+            screenshot = pyautogui.screenshot()
+            screenshot_np = np.array(screenshot)
+            screenshot_cv = cv2.cvtColor(screenshot_np, cv2.COLOR_RGB2BGR)
+        
+        # Look for messages from target traders
+        if self.target_traders:
+            logger.debug(f"Looking for messages from target traders: {', '.join(self.target_traders)}")
+        
+        # Get text from the full screenshot for trader detection
+        pil_image = Image.fromarray(cv2.cvtColor(screenshot_cv, cv2.COLOR_BGR2RGB))
+        full_text = pytesseract.image_to_string(pil_image)
+        
+        # Log if we find trader names in the text
+        for trader in self.target_traders:
+            if self._match_trader(trader, full_text):
+                logger.info(f"📋 Found target trader {trader} in screen text")
         
         # First, look for messages from target traders
         trader_regions = self._find_trader_messages(screenshot_cv)
         
-        if not trader_regions and not self.target_traders:
-            # If no target traders specified, look for any trading signals
-            trader_regions = self._find_trading_signals(screenshot_cv)
+        if not trader_regions:
+            if not self.target_traders:
+                # If no target traders specified, look for any trading signals
+                logger.debug("No trader filtering active - looking for any trading signals")
+                trader_regions = self._find_trading_signals(screenshot_cv)
+            else:
+                logger.debug("No messages from target traders found")
         
-        for region in trader_regions:
+        # Add the whole screen as a region to make sure we don't miss anything
+        h, w = screenshot_cv.shape[:2]
+        all_regions = trader_regions + [(0, 0, w, h)]
+        
+        for region in all_regions:
             # Extract the region containing the potential trading signal
             signal_img = self._extract_region(screenshot_cv, region)
             
-            # Look for "Unlock Content" button in this region
-            unlock_button_region = self._find_unlock_button(signal_img)
-            
-            if unlock_button_region is not None:
-                # Calculate the absolute position of the button
-                x, y, w, h = region
-                button_x, button_y, button_w, button_h = unlock_button_region
-                abs_button_x = x + button_x + button_w // 2
-                abs_button_y = y + button_y + button_h // 2
-                
-                # Click the button
-                logger.info(f"Clicking 'Unlock Content' button at ({abs_button_x}, {abs_button_y})")
-                pyautogui.click(abs_button_x, abs_button_y)
-                
-                # Wait for content to appear
-                time.sleep(1.0)
-                
-                # Take a new screenshot after clicking
-                screenshot = pyautogui.screenshot()
-                screenshot_np = np.array(screenshot)
-                screenshot_cv = cv2.cvtColor(screenshot_np, cv2.COLOR_RGB2BGR)
-                
-                # Extract the updated region
-                signal_img = self._extract_region(screenshot_cv, region)
-            
-            # Convert to grayscale and apply preprocessing for better OCR
+            # Look for trading signals in this region
             signal_gray = cv2.cvtColor(signal_img, cv2.COLOR_BGR2GRAY)
             signal_gray = self._preprocess_for_ocr(signal_gray)
             
@@ -181,28 +212,113 @@ class ScreenCapture:
             
             # If we found a valid signal, add it to the queue
             if self._validate_signal(signal_text):
-                logger.info("Trading signal detected")
+                logger.info("💹 Trading signal detected!")
                 logger.debug(f"Signal text: {signal_text}")
                 
                 # Add to queue if it's not a duplicate of the last processed signal
                 if signal_text != self.last_processed_signal:
                     self.signal_queue.put(signal_text)
                     self.last_processed_signal = signal_text
+                    logger.info("📊 Signal added to processing queue")
+        
+        logger.debug("Screen processing complete")
     
     def _is_discord_visible(self, screenshot):
         """
-        Check if Discord is visible on the screen
+        Check if Discord is visible on the screen and specifically
+        - Wealth Group Discord server is selected
+        - trades channel within Wealth Group is selected
         
         Args:
             screenshot: OpenCV image of the screen
             
         Returns:
-            bool: True if Discord is detected, False otherwise
+            bool: True if Discord with correct server/channel is detected, False otherwise
         """
-        # This is a simplified implementation
-        # In a real implementation, we would look for Discord-specific UI elements
-        # For now, we'll assume Discord is always visible
-        return True
+        # Convert screenshot to PIL Image for text detection
+        pil_image = Image.fromarray(cv2.cvtColor(screenshot, cv2.COLOR_BGR2RGB))
+        
+        # Use OCR to extract text
+        text = pytesseract.image_to_string(pil_image)
+        
+        # First check for Discord being visible at all
+        discord_visible = "Discord" in text
+        
+        # Look for required specific indicators:
+        # 1. Target server (Wealth Group by default) must be present
+        server_present = False
+        server_patterns = [
+            self.target_server, self.target_server.replace(" ", ""), self.target_server.lower(),
+            # The title bar often shows URLs like 'discord.com/.../Wealth Group'
+            "discord.com/channels/"
+        ]
+        for pattern in server_patterns:
+            if pattern.lower() in text.lower():
+                server_present = True
+                logger.debug(f"Target server '{self.target_server}' detected via pattern: {pattern}")
+                break
+        
+        # 2. Target channel must be selected (trades by default)
+        channel_present = False
+        channel_patterns = [
+            f"# {self.channel_name}", f"#{self.channel_name}", f"# | {self.channel_name}", 
+            # Add common channel indicators for trading channels
+            "active-futures", "active-spot", "active-alerts",
+            "orderflow", "stocks", "WG Bot", "Bot"
+        ]
+        for pattern in channel_patterns:
+            if pattern.lower() in text.lower():
+                channel_present = True
+                logger.debug(f"Target channel '{self.channel_name}' detected via pattern: {pattern}")
+                break
+        
+        # Log what we found for debugging
+        indicators_found = []
+        if discord_visible:
+            indicators_found.append("Discord")
+        if server_present:
+            indicators_found.append(self.target_server)
+        if channel_present:
+            indicators_found.append(f"{self.channel_name} channel")
+        
+        # We need all three conditions to be true
+        all_required_visible = discord_visible and server_present and channel_present
+        
+        # Look for additional supporting indicators that confirm we're in the right place
+        supporting_indicators = [
+            "Unlock Content",
+            "Press the button to unlock",
+            "WG Bot", 
+            "Only you can see this"
+        ]
+        
+        for indicator in supporting_indicators:
+            if indicator.lower() in text.lower():
+                indicators_found.append(indicator)
+        
+        # Log detailed results
+        if all_required_visible:
+            logger.info(f"✅ Discord '{self.target_server}' server and '{self.channel_name}' channel detected!")
+            logger.info(f"   Found indicators: {', '.join(indicators_found)}")
+            
+            # Look for specific trader mentions
+            for trader in self.target_traders:
+                base_name = trader.replace('@', '').replace('-', '')
+                if base_name.lower() in text.lower():
+                    logger.info(f"👤 Target trader mention detected: {trader}")
+        else:
+            missing = []
+            if not discord_visible:
+                missing.append("Discord")
+            if not server_present:
+                missing.append(f"{self.target_server} server")
+            if not channel_present:
+                missing.append(f"{self.channel_name} channel")
+                
+            logger.warning(f"⚠️ Discord verification incomplete. Missing: {', '.join(missing)}")
+            logger.debug(f"   Found indicators: {', '.join(indicators_found)}")
+            
+        return all_required_visible
     
     def _find_trader_messages(self, screenshot):
         """
@@ -258,23 +374,44 @@ class ScreenCapture:
         normalized_trader = re.sub(r'[^a-zA-Z0-9]', '', trader.lower())
         normalized_text = text.lower()
         
-        # Create variations to test
+        # Create variations to test - more variations to handle different formats
         variations = [
             trader,                                  # Original format (e.g., @Bryce)
             trader.replace('@', '@-'),              # With hyphen (e.g., @-Bryce)
             trader.replace('@-', '@'),              # Without hyphen (e.g., @Bryce)
             normalized_trader,                       # Normalized (e.g., bryce)
             '@' + normalized_trader.lstrip('@'),     # Add @ if missing
+            '@' + normalized_trader.lstrip('@').capitalize(),  # Capitalized with @ (e.g., @Bryce)
+            '@-' + normalized_trader.lstrip('@').capitalize(),  # Capitalized with @- (e.g., @-Bryce)
+            '@-' + normalized_trader.lstrip('@'),   # With hyphen but lowercase (e.g., @-bryce)
         ]
+        
+        # Special patterns for Discord message format
+        discord_patterns = [
+            f"@{normalized_trader.lstrip('@')}", # For Discord message format
+            f"@-{normalized_trader.lstrip('@')}", # For Discord message format with hyphen
+        ]
+        variations.extend(discord_patterns)
         
         logger.debug(f"Looking for trader '{trader}' with variations: {', '.join(variations)}")
         
-        # Check if any variation is in the text
+        # First check for direct inclusion of variations in the text
         for var in variations:
             if var.lower() in normalized_text:
                 logger.info(f"Found trader match: {var} in text")
                 return True
         
+        # Then check for patterns - especially targeting Discord's format showing: "@Trader"
+        patterns = [
+            re.compile(r'@' + re.escape(normalized_trader.lstrip('@')) + r'\b', re.IGNORECASE),
+            re.compile(r'@-' + re.escape(normalized_trader.lstrip('@')) + r'\b', re.IGNORECASE)
+        ]
+        
+        for pattern in patterns:
+            if pattern.search(text):
+                logger.info(f"Found trader match using pattern: {pattern.pattern}")
+                return True
+                
         return False
     
     def _find_unlock_button(self, image):
@@ -293,24 +430,50 @@ class ScreenCapture:
         # Apply thresholding to highlight text
         _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY_INV)
         
-        # Look for blue button color (typical Discord button)
+        # Apply different color ranges to detect Discord's blue buttons
+        # Discord's "Unlock Content" button is a blue color
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        lower_blue = np.array([100, 150, 100])
-        upper_blue = np.array([140, 255, 255])
-        blue_mask = cv2.inRange(hsv, lower_blue, upper_blue)
         
-        # Find contours in the blue mask
-        contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # Try multiple blue color ranges (Discord blue can vary slightly)
+        blue_ranges = [
+            # Standard Discord blue
+            (np.array([100, 150, 100]), np.array([140, 255, 255])),
+            # Lighter blue variation
+            (np.array([90, 100, 100]), np.array([150, 255, 255])),
+            # Another variation
+            (np.array([100, 80, 100]), np.array([150, 255, 255]))
+        ]
         
-        logger.debug(f"Scanning for 'Unlock Content' buttons, found {len(contours)} potential blue elements")
+        all_contours = []
         
+        for lower_blue, upper_blue in blue_ranges:
+            blue_mask = cv2.inRange(hsv, lower_blue, upper_blue)
+            
+            # Find contours in the blue mask
+            contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            all_contours.extend(contours)
+        
+        logger.debug(f"Scanning for 'Unlock Content' buttons, found {len(all_contours)} potential blue elements")
+        
+        # Also do a direct search for the text "Unlock Content" in the image
+        pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        full_text = pytesseract.image_to_string(pil_image)
+        
+        # If "Unlock Content" is found in the text, log it to help with debugging
+        if self.unlock_button_text.lower() in full_text.lower():
+            logger.info(f"Text 'Unlock Content' detected in image! Looking for button contours...")
+            
+        # Process all blue contours to find button-like shapes
         # Filter contours by size and shape (looking for button-like rectangles)
-        for contour in contours:
+        potential_buttons = []
+        
+        for contour in all_contours:
             x, y, w, h = cv2.boundingRect(contour)
             aspect_ratio = float(w) / h
             
             # Check if it looks like a button (rectangular with reasonable aspect ratio)
-            if 2.0 > aspect_ratio > 1.5 and w > 100 and h > 30:
+            # Allow a wider range of aspect ratios and sizes to match Discord's UI
+            if 3.0 > aspect_ratio > 1.2 and w >= 80 and h >= 20:
                 # Extract the button region
                 button_roi = gray[y:y+h, x:x+w]
                 
@@ -319,43 +482,80 @@ class ScreenCapture:
                 
                 logger.debug(f"Potential button at ({x}, {y}) detected, size: {w}x{h}, text: '{button_text}'")
                 
-                if self.unlock_button_text.lower() in button_text.lower():
-                    # Try to determine which trader this button belongs to
-                    # Extract a larger region above the button to find the trader name
-                    message_y = max(0, y - 100)  # Look 100 pixels above the button
-                    message_height = y - message_y
-                    message_x = max(0, x - 50)  # Extend a bit to the left
-                    message_width = w + 100  # Extend a bit to the right
+                # Compare with multiple variations of "Unlock Content"
+                button_variations = ["Unlock Content", "UnlockContent", "Unlock", "unlock content"]
+                matches_text = any(var.lower() in button_text.lower() for var in button_variations)
+                
+                if matches_text:
+                    # Add to potential buttons list with confidence score
+                    score = 1.0  # Base confidence
+                    if "Unlock Content" in button_text:
+                        score += 0.5  # Exact match bonus
                     
-                    if message_height > 0:
-                        message_roi = gray[message_y:y, message_x:message_x+message_width]
-                        message_text = pytesseract.image_to_string(message_roi)
-                        
-                        # Check if any target trader is in this message
-                        trader_in_message = None
-                        for trader in self.target_traders:
-                            if self._match_trader(trader, message_text):
-                                trader_in_message = trader
-                                break
-                        
-                        if trader_in_message:
-                            logger.info(f"Found unlock button from target trader: {trader_in_message}")
-                            logger.info(f"Unlock Content button detected at ({x}, {y})")
-                            return (x, y, w, h)
-                        else:
-                            # If we're filtering for specific traders and this isn't one of them, skip
-                            if self.target_traders:
-                                logger.info(f"Ignoring unlock button from non-target trader")
-                                continue
-                            else:
-                                # If no trader filtering is active, unlock anyway
-                                logger.info(f"Unlock Content button detected (no trader filtering)")
-                                return (x, y, w, h)
-                    else:
-                        # Couldn't determine trader, but process anyway
-                        logger.info(f"Couldn't identify trader for this message, clicking unlock anyway")
-                        return (x, y, w, h)
+                    potential_buttons.append((x, y, w, h, score))
+                    
+        # Sort potential buttons by confidence score
+        potential_buttons.sort(key=lambda b: b[4], reverse=True)
         
+        # Process potential buttons
+        for x, y, w, h, _ in potential_buttons:
+            # Try to determine which trader this button belongs to
+            # Extract a larger region above the button to find the trader name
+            # Look further up to catch the trader name in Discord messages
+            message_y = max(0, y - 150)  # Look 150 pixels above the button
+            message_height = y - message_y
+            message_x = max(0, x - 100)  # Extend more to the left
+            message_width = w + 200  # Extend more to the right
+            
+            logger.debug(f"Checking for trader name in region: {message_x}, {message_y}, {message_width}x{message_height}")
+            
+            if message_height > 0:
+                message_roi = gray[message_y:y, message_x:message_x+message_width]
+                message_text = pytesseract.image_to_string(message_roi)
+                
+                logger.debug(f"Message text near button: {message_text}")
+                
+                # Check if any target trader is in this message
+                trader_in_message = None
+                for trader in self.target_traders:
+                    if self._match_trader(trader, message_text):
+                        trader_in_message = trader
+                        break
+                
+                if trader_in_message:
+                    logger.info(f"✅ Found unlock button from target trader: {trader_in_message}")
+                    logger.info(f"✅ CLICKING: 'Unlock Content' button at ({x}, {y})")
+                    return (x, y, w, h)
+                else:
+                    # If we're filtering for specific traders and this isn't one of them, skip
+                    if self.target_traders:
+                        logger.info(f"⏭️ Ignoring unlock button from non-target trader. Text: {message_text[:50]}...")
+                        continue
+                    else:
+                        # If no trader filtering is active, unlock anyway
+                        logger.info(f"✅ Unlock Content button detected (no trader filtering)")
+                        return (x, y, w, h)
+            else:
+                # Couldn't determine trader, but process anyway
+                logger.info(f"⚠️ Couldn't identify trader for this message, clicking unlock anyway")
+                return (x, y, w, h)
+        
+        # If we found the "Unlock Content" text but no buttons matched, try a last-ditch effort
+        if self.unlock_button_text.lower() in full_text.lower() and not potential_buttons:
+            logger.warning("Found 'Unlock Content' text but couldn't identify button contours. Looking for blue regions...")
+            
+            # Try to find ANY blue regions that might be buttons
+            blue_mask = cv2.inRange(hsv, np.array([90, 60, 100]), np.array([150, 255, 255]))
+            contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            for contour in contours:
+                x, y, w, h = cv2.boundingRect(contour)
+                # Very permissive size filter - just make sure it's reasonable for a button
+                if w > 40 and h > 15 and w < 400 and h < 80:
+                    logger.info(f"⚠️ Last-ditch effort: Found potential blue button at ({x}, {y}), size: {w}x{h}")
+                    return (x, y, w, h)
+        
+        logger.debug("No 'Unlock Content' buttons found in this frame")
         return None
     
     def _find_trading_signals(self, screenshot):

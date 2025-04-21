@@ -46,6 +46,8 @@ def main():
             click_hidden_messages=config.get_discord('click_hidden_messages', 'true').lower() == 'true',
             target_traders=config.get_target_traders() if config.get_traders('enable_filtering', 'false').lower() == 'true' else None,
             monitor_specific_channel=config.get_discord('monitor_specific_channel', 'true').lower() == 'true',
+            channel_name=config.get_discord('channel_name', 'trades'),
+            target_server=config.get_discord('target_server', 'Wealth Group'),
             auto_scroll=config.get_discord('auto_scroll', 'true').lower() == 'true',
             scroll_interval=float(config.get_discord('scroll_interval', 30.0))
         )

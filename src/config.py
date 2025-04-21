@@ -72,7 +72,9 @@ class Config:
             'click_hidden_messages': 'true',
             'auto_scroll': 'true',
             'scroll_interval': '30.0',  # seconds
-            'monitor_specific_channel': 'true'
+            'monitor_specific_channel': 'true',
+            'channel_name': 'trades',   # Name of the Discord channel to monitor
+            'target_server': 'Wealth Group'  # Name of the Discord server to monitor
         }
         
         # Trader filtering settings

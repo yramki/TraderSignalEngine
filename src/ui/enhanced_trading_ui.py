@@ -13,6 +13,13 @@ import threading
 import logging
 import queue
 import configparser
+import numpy as np
+try:
+    import pyautogui
+    import cv2  # OpenCV for image processing
+except ImportError:
+    logging.warning("pyautogui, cv2, or numpy not found - Discord status detection may not work")
+    # We'll handle this in the code
 
 class EnhancedTradingUI:
     """
@@ -116,6 +123,12 @@ class EnhancedTradingUI:
         # History tab
         self._create_history_tab(history_tab)
         
+        # Initialize Discord status indicators
+        target_text = f"{self.screen_capture.target_server}/{self.screen_capture.channel_name}"
+        self._log_message(f"Monitoring Discord for trading signals from {target_text}")
+        self._log_message(f"Target traders: {', '.join(self.screen_capture.target_traders) if self.screen_capture.target_traders else 'All traders (no filtering)'}")
+        self._update_discord_status(False)  # Start with "Not Detected" status
+        
         # Start the signal processing thread
         self._start_signal_processing()
         
@@ -161,6 +174,17 @@ class EnhancedTradingUI:
         ttk.Label(control_frame, text="Status:").grid(row=0, column=2, padx=(20, 5), pady=5)
         self.status_label = ttk.Label(control_frame, text="Idle", foreground="gray")
         self.status_label.grid(row=0, column=3, padx=5, pady=5)
+        
+        # Discord status indicator
+        ttk.Label(control_frame, text="Discord:").grid(row=0, column=4, padx=(20, 5), pady=5)
+        self.discord_status_label = ttk.Label(control_frame, text="Not Detected", foreground="red")
+        self.discord_status_label.grid(row=0, column=5, padx=5, pady=5)
+        
+        # Target server/channel display
+        ttk.Label(control_frame, text="Target:").grid(row=0, column=6, padx=(20, 5), pady=5)
+        target_text = f"{self.screen_capture.target_server}/{self.screen_capture.channel_name}"
+        self.target_label = ttk.Label(control_frame, text=target_text, foreground="blue")
+        self.target_label.grid(row=0, column=7, padx=5, pady=5)
         
         # Middle frame: Signal log
         log_frame = ttk.LabelFrame(middle_frame, text="Signal Log", padding=10)
@@ -794,8 +818,57 @@ class EnhancedTradingUI:
     
     def _process_signals(self):
         """Process signals from the screen capture queue"""
+        discord_check_interval = 2.0  # Check Discord status every 2 seconds
+        last_discord_check = 0
+        
         while not self.stop_event.is_set():
             try:
+                # Periodically check Discord status
+                current_time = time.time()
+                if current_time - last_discord_check > discord_check_interval:
+                    # Check if _is_discord_visible method is available in screen_capture
+                    if hasattr(self.screen_capture, '_is_discord_visible'):
+                        # Take a screenshot and check Discord status
+                        import pyautogui
+                        screenshot = pyautogui.screenshot()
+                        # Convert to OpenCV format
+                        import numpy as np
+                        screenshot = np.array(screenshot)
+                        screenshot = screenshot[:, :, ::-1].copy()  # Convert RGB to BGR
+                        
+                        # Check Discord status
+                        discord_detected, server_detected, channel_detected = False, False, False
+                        
+                        # Try to get Discord status with all details
+                        try:
+                            # Check how many values the method returns - it might return different signature depending on version
+                            result = self.screen_capture._is_discord_visible(screenshot)
+                            
+                            if isinstance(result, tuple) and len(result) == 3:
+                                # New version returning 3 values
+                                discord_visible, server_present, channel_present = result
+                                discord_detected = discord_visible
+                                server_detected = server_present
+                                channel_detected = channel_present
+                                self._log_message(f"Discord detector: Discord={discord_visible}, Server={server_present}, Channel={channel_present}", level="INFO")
+                            elif isinstance(result, bool):
+                                # Old version returning just a boolean
+                                discord_detected = result
+                                self._log_message(f"Discord detector (legacy): Discord={result}", level="INFO")
+                            else:
+                                # Unknown result format
+                                discord_detected = bool(result)  # Convert whatever we got to a boolean
+                                self._log_message(f"Unknown Discord detection result: {result}", level="WARNING")
+                        except Exception as e:
+                            # If detection fails completely, set all to False
+                            discord_detected = False
+                            self._log_message(f"Discord detection failed: {e}", level="ERROR")
+                        
+                        # Update the Discord status in the UI
+                        self._update_discord_status(discord_detected, server_detected, channel_detected)
+                    
+                    last_discord_check = current_time
+                
                 # Get signal with timeout to allow checking stop_event
                 signal_text = self.screen_capture.get_signal(timeout=0.1)
                 if signal_text:
@@ -938,6 +1011,32 @@ class EnhancedTradingUI:
             color: Text color
         """
         self.status_label.config(text=status, foreground=color)
+    
+    def _update_discord_status(self, is_detected, server_detected=False, channel_detected=False):
+        """
+        Update the Discord status indicator
+        
+        Args:
+            is_detected: Whether Discord is detected
+            server_detected: Whether the target server is detected
+            channel_detected: Whether the target channel is detected
+        """
+        if is_detected and server_detected and channel_detected:
+            self.discord_status_label.config(text="Connected", foreground="green")
+            target_text = f"{self.screen_capture.target_server}/{self.screen_capture.channel_name} ✓"
+            self.target_label.config(text=target_text, foreground="green")
+        elif is_detected and server_detected:
+            self.discord_status_label.config(text="Server Only", foreground="orange")
+            target_text = f"{self.screen_capture.target_server} ✓ / {self.screen_capture.channel_name} ✗"
+            self.target_label.config(text=target_text, foreground="orange")
+        elif is_detected:
+            self.discord_status_label.config(text="Wrong Channel", foreground="orange")
+            target_text = f"{self.screen_capture.target_server} ✗ / {self.screen_capture.channel_name} ✗"
+            self.target_label.config(text=target_text, foreground="orange")
+        else:
+            self.discord_status_label.config(text="Not Detected", foreground="red")
+            target_text = f"{self.screen_capture.target_server}/{self.screen_capture.channel_name}"
+            self.target_label.config(text=target_text, foreground="red")
     
     def _on_closing(self):
         """Handle window closing event"""
