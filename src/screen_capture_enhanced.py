@@ -1896,7 +1896,7 @@ class ScreenCapture:
     def _detect_trading_signal(self, screenshot):
         """
         Highly focused detection of trading signals based on exact pattern:
-        1. Target trader @handle (any of @Eliz, @Johnny, @Woods, @Michele)
+        1. Target trader @handle (any of @Atackz, @Johnny, @Woods, @Michele)
         2. "Press the button to unlock the content" text nearby
         3. Blue "Unlock Content" button
         
@@ -1923,6 +1923,11 @@ class ScreenCapture:
         # 1. Look for target trader mentions (prioritize exact matches)
         trader_found = False
         target_trader = None
+        
+        # Replace the incorrect trader list with the correct ones if necessary
+        if "@Eliz" in self.target_traders and "@Atackz" not in self.target_traders:
+            logger.warning("⚠️ Correcting trader list - replacing @Eliz with @Atackz")
+            self.target_traders = ["@Atackz", "@Johnny", "@Woods", "@Michele"]
         
         for trader in self.target_traders:
             normalized_trader = trader.lower()
