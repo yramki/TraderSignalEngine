@@ -1,7 +1,7 @@
 # Discord Trading Signal Scraper - Product Requirements
 
 ## Purpose
-An automated tool that monitors Discord messages for trading signals from specific trusted traders, identifies and clicks "Unlock Content" buttons to reveal hidden trading information, and captures the revealed trading recommendations
+An automated tool that monitors Discord messages for trading signals from specific trusted traders, identifies and clicks "Unlock Content" buttons to reveal hidden trading information, and captures the revealed trading recommendations. It then takes those recommendations and places trades on Phemex (or another exchage) based on trader's preferences.
 
 ## Core Requirements
 
@@ -11,12 +11,11 @@ An automated tool that monitors Discord messages for trading signals from specif
 - Detect when Discord is visible and in the correct server/channel
 
 ### 2. Trader Detection
-- Monitor messages only from specific trusted traders:
-  - @Atackz
+- Monitor messages only from specific trusted traders - this list of traders should be configurable. For example
   - @Johnny
-  - @Woods
+  - @Eliz
+  - Woods
   - @Michele
-- Allow configuration of target traders through UI and config file
 - Support flexible matching of trader names with confidence scoring
 
 ### 3. Trading Signal Detection
@@ -29,6 +28,7 @@ A complete trading signal requires the presence of ALL THREE criteria:
 - Identify blue "Unlock Content" buttons using color detection (Discord blue)
 - Button dimensions are approximately 120-140px wide by 30-35px tall
 - Click in the center of the detected button to reveal hidden content
+- When the button is clicked the content is unlocked, but the message moves to the bottom of the channel i.e. it becomes the latest message in that channel. So, to extract the information revealed, application has to scroll to the bottom of the channel.
 - Do not click on buttons for messages that don't meet all three criteria
 - Do not click on already unlocked content (containing: "valid limit order", "entry:", "sl:", etc.)
 
@@ -38,6 +38,8 @@ A complete trading signal requires the presence of ALL THREE criteria:
 3. When a complete trading signal is found, click the "Unlock Content" button
 4. Wait for content to be revealed and scroll down to ensure visibility
 5. Process newly revealed content for trading information
+6. Based on trader's preferences, place a trader.
+7. Go back to monitoring the channel. Multiple messages may come in a short time in which case, application has to scroll up and find the messages.
 
 ### 6. Logging and Notification
 - Log clear, consistent information when trading signals are found:
@@ -56,32 +58,7 @@ A complete trading signal requires the presence of ALL THREE criteria:
 ### 8. Configuration Options
 - Allow customization of:
   - Target traders
-  - Scan interval
-  - Auto-scroll settings
+  - Scan interva
   - Trading parameters
-  - Input controller selection (PyAutoGUI vs. native macOS)
 
 ## Technical Requirements
-
-### 1. Detection Algorithms
-- Use HSV color space for reliable button color detection
-- Multiple detection approaches with fallbacks:
-  - OCR-based text detection using pytesseract
-  - Color and contour-based button detection
-  - Shape and size matching for buttons
-
-### 2. Performance Considerations
-- Minimize CPU/GPU usage during continuous scanning
-- Operate at a reasonable scan interval (default: 2 seconds)
-- Ensure clean release of resources when stopped
-
-### 3. User Interface
-- Provide configuration UI for all settings
-- Display real-time status of detection efforts
-- Show history of detected trading signals
-
-## Future Enhancements
-- Integration with trading APIs for automated execution
-- Statistical analysis of trader performance
-- Enhanced signal parsing for specific trading parameters
-- Support for additional Discord servers and channels
