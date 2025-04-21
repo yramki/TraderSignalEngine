@@ -18,49 +18,55 @@ import atexit
 import sys
 import traceback
 
-# Import the input controller for more reliable mouse control
+# Import the input controller for reliable macOS control
 try:
-    from input_controller import InputController
+    import src.input_controller as input_controller
     HAS_INPUT_CONTROLLER = True
 except ImportError:
-    HAS_INPUT_CONTROLLER = False
-    print("Warning: input_controller module not found, falling back to basic PyAutoGUI")
-
-# Configure PyAutoGUI safety settings
-pyautogui.PAUSE = 0.1  # Add small pause between PyAutoGUI commands for stability
-pyautogui.FAILSAFE = True  # Enable fail-safe for mouse movement
-
-# Create input controller instance if available
-input_controller = None
-if HAS_INPUT_CONTROLLER:
     try:
-        # Try to create the input controller with the default settings
-        input_controller = InputController()
-        logger = logging.getLogger(__name__)
-        logger.info(f"✅ Using enhanced input controller: {input_controller.controller_type}")
-    except Exception as e:
-        print(f"Error initializing input controller: {e}")
-        input_controller = None
+        import input_controller
+        HAS_INPUT_CONTROLLER = True
+    except ImportError:
+        HAS_INPUT_CONTROLLER = False
+        print("Error: input_controller module not found. This app requires macOS native controls.")
+        sys.exit(1)  # Exit since this is a Mac-only app
 
-# Create a global emergency cleanup function to ensure mouse is always released
+# Configure PyAutoGUI safety settings (used as fallback only)
+pyautogui.PAUSE = 0.1
+pyautogui.FAILSAFE = True
+
+# Setup logger
+logger = logging.getLogger(__name__)
+
+# Create a global emergency cleanup function for macOS
 def _emergency_cleanup():
-    """Global emergency cleanup to release mouse if program terminates unexpectedly"""
+    """Global emergency cleanup for macOS to ensure mouse is released and system resources are freed"""
     try:
-        if input_controller:
-            # Use enhanced controller if available
-            input_controller.emergency_cleanup()
-            print("Emergency cleanup: Used enhanced input controller")
-        else:
-            # Fallback to basic PyAutoGUI cleanup
-            pyautogui.mouseUp()
-            pyautogui.keyUp('shift')
-            pyautogui.keyUp('ctrl')
-            pyautogui.keyUp('alt')
-            screen_width, screen_height = pyautogui.size()
-            pyautogui.moveTo(screen_width // 2, screen_height // 2, duration=0.1)
-            print("Emergency cleanup: Released mouse buttons and keyboard modifiers")
+        # Use macOS native controller for cleanup
+        screen_size = input_controller.get_screen_size()
+        center_x, center_y = screen_size[0] // 2, screen_size[1] // 2
+        
+        # Handle any pressed mouse buttons
+        input_controller.release_mouse() if hasattr(input_controller, 'release_mouse') else None
+        
+        # Reset cursor position to screen center
+        input_controller.move_mouse(center_x, center_y)
+        
+        # Use AppleScript to ensure any stuck key modifiers are released
+        if hasattr(input_controller, 'run_applescript'):
+            script = '''
+            tell application "System Events"
+                key up shift
+                key up command
+                key up option
+                key up control
+            end tell
+            '''
+            input_controller.run_applescript(script)
+        
+        print("macOS emergency cleanup: Released all input controls and reset cursor position")
     except Exception as e:
-        print(f"Error during emergency cleanup: {e}")
+        print(f"Error during macOS emergency cleanup: {e}")
         traceback.print_exc()
 
 # Register the emergency cleanup function to run on program exit
@@ -366,17 +372,67 @@ class ScreenCapture:
         logger.debug("Capture loop started")
         error_count = 0
         
+        # Track when we last checked Discord channel
+        last_channel_check = 0
+        channel_check_interval = 60  # Check if we're in the right channel every minute
+        
+        # Start by navigating to the correct Discord channel if needed
+        if self.monitor_specific_channel:
+            logger.info(f"🔍 Navigating to Discord channel '{self.channel_name}' in server '{self.target_server}'...")
+            try:
+                success = input_controller.navigate_to_discord_channel(self.target_server, self.channel_name)
+                if success:
+                    logger.info(f"✅ Successfully navigated to Discord channel '{self.channel_name}'")
+                else:
+                    logger.warning(f"⚠️ Could not automatically navigate to channel '{self.channel_name}'. Please manually navigate to it.")
+            except Exception as nav_error:
+                logger.error(f"❌ Error during initial channel navigation: {nav_error}")
+        
+        # Main processing loop
         while self.running:
             try:
                 # Reset mouse state before each capture to prevent issues
                 if error_count > 0:
                     # After an error, reset mouse state as precaution
                     try:
-                        pyautogui.mouseUp()
+                        # Use macOS native input control
+                        if hasattr(input_controller, 'release_mouse'):
+                            input_controller.release_mouse()
+                        else:
+                            pyautogui.mouseUp()
                         # Let the system stabilize briefly
                         time.sleep(0.1)
                     except Exception as cleanup_error:
                         logger.error(f"Error resetting mouse state: {cleanup_error}")
+                
+                # Check if we need to verify current Discord channel
+                current_time = time.time()
+                if self.monitor_specific_channel and (current_time - last_channel_check) > channel_check_interval:
+                    try:
+                        # First just try to focus Discord
+                        input_controller.focus_app("Discord")
+                        
+                        # Check if we can see the target channel in any UI text elements
+                        ui_text = input_controller.extract_text_from_ui()
+                        channel_found = False
+                        
+                        for key, element in ui_text.items():
+                            element_text = element.get('text', '').lower()
+                            # Look for channel name in UI elements (usually in header)
+                            if self.channel_name.lower() in element_text:
+                                channel_found = True
+                                logger.debug(f"✓ Verified current Discord channel is '{self.channel_name}'")
+                                break
+                        
+                        # If channel not found in UI, try to navigate to it
+                        if not channel_found:
+                            logger.info(f"🔍 Re-navigating to Discord channel '{self.channel_name}'...")
+                            input_controller.navigate_to_discord_channel(self.target_server, self.channel_name)
+                        
+                        # Update timestamp
+                        last_channel_check = current_time
+                    except Exception as channel_error:
+                        logger.error(f"Error checking Discord channel: {channel_error}")
                 
                 # Capture the screen with resource management
                 self._process_screen()
@@ -442,14 +498,41 @@ class ScreenCapture:
                     if error_count > 0:
                         scroll_amount = -150  # Gentler scrolling after errors
                         
-                    # Scroll down to check for new messages
-                    pyautogui.scroll(scroll_amount)
+                    # Scroll down to check for new messages - use enhanced macOS controls if available
+                    try:
+                        # First make sure Discord is in focus
+                        input_controller.focus_app("Discord")
+                        
+                        # Use AppleScript to do smooth scrolling in a more reliable way
+                        if hasattr(input_controller, 'run_applescript'):
+                            # Note: scroll direction is reversed in AppleScript (negative = up in UI, positive = down)
+                            # So we need to negate our scroll_amount
+                            scroll_script = f'''
+                            tell application "System Events"
+                                set frontApp to name of first application process whose frontmost is true
+                                if frontApp is "Discord" then
+                                    tell application process "Discord"
+                                        set scrollArea to a reference to (first scroll area of first window)
+                                        scroll scrollArea by {{0, {-scroll_amount}}}
+                                    end tell
+                                end if
+                            end tell
+                            '''
+                            input_controller.run_applescript(scroll_script)
+                            logger.debug(f"Used AppleScript for smoother Discord scrolling (amount: {-scroll_amount})")
+                        else:
+                            # Fall back to PyAutoGUI if needed
+                            pyautogui.scroll(scroll_amount)
+                            logger.debug(f"Used PyAutoGUI for scrolling (amount: {scroll_amount})")
+                    except Exception as scroll_error:
+                        # If AppleScript fails, fall back to PyAutoGUI
+                        logger.warning(f"AppleScript scrolling failed, falling back to PyAutoGUI: {scroll_error}")
+                        pyautogui.scroll(scroll_amount)
                     
-                    logger.debug(f"Auto-scrolled down to check for new messages (amount: {scroll_amount})")
                     self.last_scroll_time = current_time
                     
                     # Wait briefly after scrolling to let the screen update
-                    time.sleep(0.2)
+                    time.sleep(0.3)  # Slightly longer wait for macOS animations
                     
                     # Success tracking
                     consecutive_success += 1
@@ -681,22 +764,81 @@ class ScreenCapture:
                         pass
         
         # Continue with the original button detection as a backup
-        # First, scan the entire image for "Unlock Content" buttons directly
-        # This ensures we find all buttons even if we can't identify trader messages
-        logger.debug("Scanning full screen for 'Unlock Content' buttons using standard detection...")
-        unlock_button_region = self._find_unlock_button(screenshot_cv)
+        # First, try to find "Unlock Content" buttons using macOS native Accessibility APIs
+        logger.debug("Scanning for 'Unlock Content' buttons using macOS Accessibility APIs...")
+        button_found_via_api = False
+        button_click_success = False
+        button_coordinates = None
         
-        if unlock_button_region is not None:
-            # Button found directly - handle it
-            x, y, w, h = unlock_button_region
-            abs_button_x = x + w // 2
-            abs_button_y = y + h // 2
+        try:
+            # Check if we have macOS-specific controller features available
+            if hasattr(input_controller, 'click_button_by_text'):
+                # Try to focus Discord first
+                input_controller.focus_app("Discord")
+                
+                # Try to find and click button by text directly (much more accurate than image detection)
+                unlock_button_texts = ["Unlock Content", "Press to unlock", "Click to unlock", "Unlock", "Unlock this"]
+                
+                # Try each possible button text
+                for button_text in unlock_button_texts:
+                    click_success = input_controller.click_button_by_text(button_text)
+                    if click_success:
+                        button_found_via_api = True
+                        button_click_success = True
+                        logger.info(f"✅ Successfully clicked '{button_text}' button using macOS Accessibility APIs")
+                        time.sleep(0.8)  # Wait for button click to take effect
+                        break
+                
+                # Also try to get coordinates of button for logging purposes
+                if button_found_via_api:
+                    ui_elements = input_controller.extract_text_from_ui()
+                    for element_id, element_info in ui_elements.items():
+                        if any(text.lower() in element_info.get('text', '').lower() for text in unlock_button_texts):
+                            button_coordinates = element_info.get('position', None)
+                            logger.info(f"📍 Button detected at approximate coordinates: {button_coordinates}")
+                            break
             
-            # Add randomness to click position to mimic human behavior and avoid detection
-            random_offset_x = np.random.randint(-5, 6)  # Random offset between -5 and +5 pixels
-            random_offset_y = np.random.randint(-2, 3)  # Random offset between -2 and +2 pixels
-            click_x = abs_button_x + random_offset_x
-            click_y = abs_button_y + random_offset_y
+            if not button_found_via_api:
+                # Fall back to image processing
+                logger.debug("No button found via macOS APIs, falling back to standard detection...")
+                unlock_button_region = self._find_unlock_button(screenshot_cv)
+                
+                if unlock_button_region is not None:
+                    # Button found directly via image processing - handle it
+                    x, y, w, h = unlock_button_region
+                    abs_button_x = x + w // 2
+                    abs_button_y = y + h // 2
+                    
+                    # Add randomness to click position to mimic human behavior and avoid detection
+                    random_offset_x = np.random.randint(-5, 6)  # Random offset between -5 and +5 pixels
+                    random_offset_y = np.random.randint(-2, 3)  # Random offset between -2 and +2 pixels
+                    click_x = abs_button_x + random_offset_x
+                    click_y = abs_button_y + random_offset_y
+                    
+                    # Save the coordinates for later use
+                    button_coordinates = (click_x, click_y)
+                    logger.info(f"📍 Button detected via image processing at coordinates: {button_coordinates}")
+        except Exception as api_error:
+            logger.error(f"❌ Error using macOS Accessibility APIs for button detection: {api_error}")
+            logger.debug("Falling back to standard image-based button detection...")
+            
+            # Traditional image-based detection as fallback
+            unlock_button_region = self._find_unlock_button(screenshot_cv)
+            
+            if unlock_button_region is not None:
+                # Button found directly - handle it
+                x, y, w, h = unlock_button_region
+                abs_button_x = x + w // 2
+                abs_button_y = y + h // 2
+                
+                # Add randomness to click position to mimic human behavior
+                random_offset_x = np.random.randint(-5, 6)  # Random offset between -5 and +5 pixels
+                random_offset_y = np.random.randint(-2, 3)  # Random offset between -2 and +2 pixels
+                click_x = abs_button_x + random_offset_x
+                click_y = abs_button_y + random_offset_y
+                
+                # Save the coordinates for later use
+                button_coordinates = (click_x, click_y)
             
             # Try to identify the trader associated with this button
             pil_image = Image.fromarray(cv2.cvtColor(screenshot_cv, cv2.COLOR_BGR2RGB))
@@ -799,18 +941,82 @@ class ScreenCapture:
         if self.target_traders:
             logger.debug(f"Looking for messages from target traders: {', '.join(self.target_traders)}")
         
-        # Get text from the full screenshot for trader detection
-        pil_image = Image.fromarray(cv2.cvtColor(screenshot_cv, cv2.COLOR_BGR2RGB))
-        full_text = pytesseract.image_to_string(pil_image)
+        # First, try to get Discord messages using macOS Accessibility APIs
+        discord_messages_found = False
+        trader_regions = []
         
-        # Log if we find trader names in the text
-        for trader in self.target_traders:
-            if self._match_trader(trader, full_text):
-                logger.info(f"📋 Found target trader {trader} in screen text")
+        try:
+            # Check if we have the enhanced macOS capabilities available
+            if hasattr(input_controller, 'get_discord_messages'):
+                # First, ensure Discord is in focus
+                input_controller.focus_app("Discord")
+                time.sleep(0.2)  # Small pause to ensure Discord is focused
+                
+                # Try to get recent Discord messages directly via accessibility APIs
+                logger.info("🔍 Attempting to read Discord messages using macOS Accessibility APIs...")
+                messages = input_controller.get_discord_messages(count=15)  # Get up to 15 recent messages
+                
+                if messages and len(messages) > 0:
+                    discord_messages_found = True
+                    logger.info(f"✅ Successfully retrieved {len(messages)} Discord messages via macOS APIs")
+                    
+                    # Process each message to look for target traders
+                    for message in messages:
+                        message_text = message.get('text', '')
+                        sender = message.get('sender', '')
+                        timestamp = message.get('timestamp', '')
+                        coordinates = message.get('coordinates', None)
+                        
+                        # Combine sender and message text for trader matching
+                        full_message = f"{sender}: {message_text}"
+                        
+                        # Check for target traders in this message
+                        for trader in self.target_traders:
+                            # Use our improved confidence-based matching
+                            confidence = self._match_trader_with_confidence(trader, full_message)
+                            
+                            if confidence > 0.6:  # Reasonably confident match
+                                logger.info(f"✅ Found target trader {trader} in message from '{sender}' [confidence: {confidence:.2f}]")
+                                logger.info(f"📱 Message content: {message_text[:100]}...")
+                                if timestamp:
+                                    logger.info(f"⏰ Message timestamp: {timestamp}")
+                                
+                                # If we have coordinates, add this as a region to check
+                                if coordinates:
+                                    x, y, w, h = coordinates
+                                    trader_regions.append((x, y, w, h))
+                                    logger.info(f"📍 Message region at ({x}, {y}) with size {w}x{h}")
+                                    
+                                    # Save screenshot with the trader region highlighted
+                                    screenshot_file = self._save_screenshot_with_highlight(
+                                        screenshot_cv, 
+                                        (x, y, w, h),
+                                        f"trader_{trader.replace('@', '').replace('-', '_')}_macos_api"
+                                    )
+                                    if screenshot_file:
+                                        logger.info(f"📸 Saved trader detection screenshot: {screenshot_file}")
+        except Exception as api_error:
+            logger.error(f"❌ Error using macOS Accessibility APIs for message detection: {api_error}")
+            logger.debug("Falling back to OCR-based message detection...")
         
-        # First, look for messages from target traders
-        trader_regions = self._find_trader_messages(screenshot_cv)
+        # If no Discord messages found via API, fall back to OCR
+        if not discord_messages_found:
+            logger.info("⚠️ No Discord messages found via macOS APIs, falling back to OCR...")
+            
+            # Get text from the full screenshot for trader detection
+            pil_image = Image.fromarray(cv2.cvtColor(screenshot_cv, cv2.COLOR_BGR2RGB))
+            full_text = pytesseract.image_to_string(pil_image)
+            
+            # Log if we find trader names in the text
+            for trader in self.target_traders:
+                if self._match_trader(trader, full_text):
+                    logger.info(f"📋 Found target trader {trader} in screen text via OCR")
+            
+            # Look for messages from target traders using image processing
+            ocr_trader_regions = self._find_trader_messages(screenshot_cv)
+            trader_regions.extend(ocr_trader_regions)
         
+        # If we still didn't find any targeted trader messages
         if not trader_regions:
             if not self.target_traders:
                 # If no target traders specified, look for any trading signals
@@ -859,6 +1065,76 @@ class ScreenCapture:
         Returns:
             bool: True if Discord with correct server/channel is detected, False otherwise
         """
+        # First try to use macOS Accessibility APIs for more accurate detection
+        try:
+            if hasattr(input_controller, 'extract_text_from_ui'):
+                # Ensure Discord app is in focus
+                input_controller.focus_app("Discord")
+                time.sleep(0.1)  # Short pause to ensure Discord is in focus
+                
+                # Extract text from UI elements
+                ui_elements = input_controller.extract_text_from_ui()
+                
+                # Track what we found
+                discord_visible = False
+                server_present = False
+                channel_present = False
+                
+                # Process text elements to find Discord, server, and channel indicators
+                for element_id, element_data in ui_elements.items():
+                    element_text = element_data.get('text', '').lower()
+                    
+                    # Check for Discord indicators
+                    if "discord" in element_text or "discord.com" in element_text:
+                        discord_visible = True
+                        logger.debug(f"Discord detected via UI element: '{element_text[:30]}...'")
+                    
+                    # Check for server indicators
+                    if self.target_server.lower() in element_text:
+                        server_present = True
+                        logger.debug(f"Target server '{self.target_server}' detected via UI element: '{element_text[:30]}...'")
+                    
+                    # Check for channel indicators
+                    channel_patterns = [
+                        f"#{self.channel_name.lower()}", 
+                        f"# {self.channel_name.lower()}", 
+                        f"{self.channel_name.lower()} channel",
+                        "trades"
+                    ]
+                    
+                    for pattern in channel_patterns:
+                        if pattern in element_text:
+                            channel_present = True
+                            logger.debug(f"Target channel '{self.channel_name}' detected via UI element: '{element_text[:30]}...'")
+                            break
+                
+                # Check for "Unlock Content" buttons as they typically appear in trading channels
+                unlock_button_present = False
+                for element_id, element_data in ui_elements.items():
+                    element_text = element_data.get('text', '').lower()
+                    if "unlock" in element_text or "unlock content" in element_text or "press to unlock" in element_text:
+                        unlock_button_present = True
+                        logger.debug(f"'Unlock Content' button detected via UI element: '{element_text[:30]}...'")
+                        break
+                
+                # Basic detection through Accessibility APIs
+                basic_api_detection = discord_visible and (server_present or channel_present)
+                
+                # If we find unlock buttons in Discord, that's a strong signal we're in the right channel
+                alternative_api_detection = discord_visible and unlock_button_present
+                
+                if basic_api_detection or alternative_api_detection:
+                    logger.info("✅ Discord with correct server/channel detected via macOS Accessibility APIs")
+                    return True
+                
+                # If we weren't able to confirm via APIs, fall back to OCR
+                logger.debug("Couldn't confirm Discord channel via APIs, falling back to OCR...")
+                
+        except Exception as api_error:
+            logger.warning(f"❌ Error using macOS Accessibility APIs for Discord detection: {api_error}")
+            logger.debug("Falling back to OCR-based Discord detection...")
+        
+        # Fall back to OCR-based detection if API detection fails
         # Use enhanced OCR with multiple preprocessings for more accurate text detection
         text = self._enhanced_ocr(screenshot)
         
@@ -878,7 +1154,7 @@ class ScreenCapture:
         for pattern in server_patterns:
             if pattern.lower() in text.lower():
                 server_present = True
-                logger.debug(f"Target server '{self.target_server}' detected via pattern: '{pattern}'")
+                logger.debug(f"Target server '{self.target_server}' detected via OCR pattern: '{pattern}'")
                 break
         
         # 2. Target channel must be selected (trades by default)
@@ -898,7 +1174,7 @@ class ScreenCapture:
         for pattern in channel_patterns:
             if pattern.lower() in text.lower():
                 channel_present = True
-                logger.debug(f"Target channel '{self.channel_name}' detected via pattern: '{pattern}'")
+                logger.debug(f"Target channel '{self.channel_name}' detected via OCR pattern: '{pattern}'")
                 break
                 
         # If we detect the Wealth Group server and see an "Unlock Content" button,

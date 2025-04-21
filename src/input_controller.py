@@ -222,6 +222,100 @@ def click_button_by_text(button_text):
         logger.error(f"Failed to click button with text '{button_text}': {e}")
         return False
 
+def extract_text_from_ui(x=None, y=None, element_type=None):
+    """
+    Extract text directly from UI elements
+    This only works with the macOS controller
+    
+    Args:
+        x: Optional X coordinate to focus search
+        y: Optional Y coordinate to focus search
+        element_type: Optional type of element to extract text from
+        
+    Returns:
+        dict: Dictionary of extracted text elements with their coordinates or empty dict if not supported
+    """
+    controller = get_controller()
+    
+    if controller == ControllerType.PYAUTOGUI:
+        logger.warning("UI text extraction not supported with PyAutoGUI controller")
+        return {}
+    
+    try:
+        if controller == ControllerType.MACOS_NATIVE:
+            return mac_controller.extract_text_from_ui(x, y, element_type)
+        elif controller == ControllerType.HYBRID:
+            try:
+                return mac_controller.extract_text_from_ui(x, y, element_type)
+            except Exception as e:
+                logger.warning(f"macOS text extraction failed ({e}), PyAutoGUI cannot perform this operation")
+                return {}
+    except Exception as e:
+        logger.error(f"Failed to extract text from UI: {e}")
+        return {}
+
+def navigate_to_discord_channel(server_name, channel_name):
+    """
+    Navigate to a specific Discord channel within a server
+    This only works with the macOS controller
+    
+    Args:
+        server_name: Name of the Discord server
+        channel_name: Name of the channel within the server
+        
+    Returns:
+        bool: True if navigation was successful, False if failed or not supported
+    """
+    controller = get_controller()
+    
+    if controller == ControllerType.PYAUTOGUI:
+        logger.warning("Discord channel navigation not supported with PyAutoGUI controller")
+        return False
+    
+    try:
+        if controller == ControllerType.MACOS_NATIVE:
+            return mac_controller.navigate_to_discord_channel(server_name, channel_name)
+        elif controller == ControllerType.HYBRID:
+            try:
+                return mac_controller.navigate_to_discord_channel(server_name, channel_name)
+            except Exception as e:
+                logger.warning(f"macOS Discord navigation failed ({e}), PyAutoGUI cannot perform this operation")
+                return False
+    except Exception as e:
+        logger.error(f"Failed to navigate to Discord channel: {e}")
+        return False
+
+def get_discord_messages(count=10):
+    """
+    Extract the most recent Discord messages directly from the UI
+    This only works with the macOS controller
+    
+    Args:
+        count: Number of recent messages to extract
+        
+    Returns:
+        list: List of message dictionaries with text, sender, timestamp and coordinates,
+              or empty list if not supported
+    """
+    controller = get_controller()
+    
+    if controller == ControllerType.PYAUTOGUI:
+        logger.warning("Discord message extraction not supported with PyAutoGUI controller")
+        return []
+    
+    try:
+        if controller == ControllerType.MACOS_NATIVE:
+            return mac_controller.get_discord_messages(count)
+        elif controller == ControllerType.HYBRID:
+            try:
+                return mac_controller.get_discord_messages(count)
+            except Exception as e:
+                logger.warning(f"macOS Discord message extraction failed ({e}), PyAutoGUI cannot perform this operation")
+                return []
+    except Exception as e:
+        logger.error(f"Failed to extract Discord messages: {e}")
+        return []
+
 def focus_app(app_name):
     """
     Ensure the specified app is in focus
