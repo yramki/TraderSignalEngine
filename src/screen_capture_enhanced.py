@@ -581,12 +581,26 @@ class ScreenCapture:
                 click_x += random_offset_x
                 click_y += random_offset_y
                 
-                # First try to identify the trader associated with this button
+                # Use improved trader detection with confidence scoring
                 trader_name = "Unknown"
+                best_trader = None
+                highest_confidence = 0.0
+                
                 for trader in self.target_traders:
-                    if trader in full_text:
-                        trader_name = trader
-                        break
+                    # Use our improved confidence-based matching
+                    confidence = self._match_trader_with_confidence(trader, full_text)
+                    
+                    # Only consider reasonably confident matches
+                    if confidence > 0.6 and confidence > highest_confidence:
+                        highest_confidence = confidence
+                        best_trader = trader
+                        trader_name = f"{trader} [confidence: {confidence:.2f}]"
+                
+                # If we're filtering by trader but didn't find a match with high confidence, abort the click
+                if self.target_traders and not best_trader and len(self.target_traders) > 0:
+                    logger.warning(f"⚠️ No target trader match found with direct text detection - skipping click")
+                    logger.debug(f"Target traders: {', '.join(self.target_traders)}")
+                    return
                 
                 # Extract Discord message timestamp using our helper method
                 discord_timestamp = self.extract_discord_timestamp(full_text)
@@ -600,6 +614,31 @@ class ScreenCapture:
                 timestamp_info = f"time: {timestamp}"
                 if discord_timestamp:
                     timestamp_info = f"Discord time: {discord_timestamp}, detected at: {timestamp}"
+                
+                # Get screen size for safety validation
+                screen_width, screen_height = pyautogui.size()
+                
+                # Define safe margins to avoid triggering PyAutoGUI's failsafe
+                safety_margin = 50  # pixels from the edge
+                safe_width = screen_width - safety_margin
+                safe_height = screen_height - safety_margin
+                
+                # Validate coordinates before clicking
+                if click_x >= safe_width or click_y >= safe_height or click_x <= safety_margin or click_y <= safety_margin:
+                    logger.warning(f"⚠️ Button coordinates ({click_x}, {click_y}) outside safe region ({safety_margin}-{safe_width}x{safety_margin}-{safe_height}) - adjusting")
+                    
+                    # If coordinates are extremely off, use a fallback position
+                    if click_x > screen_width * 1.2 or click_y > screen_height * 1.2 or click_x < 0 or click_y < 0:
+                        logger.warning("❌ Coordinates extremely out of range - using fallback center position")
+                        # Use center of screen with a slight random offset
+                        click_x = screen_width // 2 + np.random.randint(-50, 50)  
+                        click_y = screen_height // 2 + np.random.randint(-50, 50)
+                    else:
+                        # Clamp coordinates to safe region
+                        click_x = max(safety_margin, min(click_x, safe_width))
+                        click_y = max(safety_margin, min(click_y, safe_height))
+                    
+                    logger.warning(f"✓ Adjusted coordinates to ({click_x}, {click_y})")
                 
                 logger.info(f"🖱️ DIRECT CLICK: Clicking button at ({click_x}, {click_y}), score: {best_score:.2f}, trader: {trader_name}, {timestamp_info}")
                 
@@ -664,10 +703,24 @@ class ScreenCapture:
             full_text = pytesseract.image_to_string(pil_image)
             
             trader_name = "Unknown"
+            best_trader = None
+            highest_confidence = 0.0
+            
             for trader in self.target_traders:
-                if trader in full_text or self._match_trader(trader, full_text):
-                    trader_name = trader
-                    break
+                # Use our improved confidence-based matching
+                confidence = self._match_trader_with_confidence(trader, full_text)
+                
+                # Only consider reasonably confident matches
+                if confidence > 0.6 and confidence > highest_confidence:
+                    highest_confidence = confidence
+                    best_trader = trader
+                    trader_name = f"{trader} [confidence: {confidence:.2f}]"
+            
+            # If we're filtering by target traders and didn't find a match, don't click
+            if self.target_traders and not best_trader and len(self.target_traders) > 0:
+                logger.warning(f"⚠️ No target trader match found in button area - skipping click")
+                logger.debug(f"Target traders: {', '.join(self.target_traders)}")
+                return
             
             # Extract Discord message timestamp using our helper method
             discord_timestamp = self.extract_discord_timestamp(full_text)
@@ -682,6 +735,28 @@ class ScreenCapture:
             if discord_timestamp:
                 timestamp_info = f"Discord time: {discord_timestamp}, detected at: {timestamp}"
                 
+            # Validate coordinates before clicking
+            screen_width, screen_height = pyautogui.size()
+            safety_margin = 50  # pixels from the edge
+            safe_width = screen_width - safety_margin
+            safe_height = screen_height - safety_margin
+            
+            # Check if coordinates are outside safe region
+            if click_x >= safe_width or click_y >= safe_height or click_x <= safety_margin or click_y <= safety_margin:
+                logger.warning(f"⚠️ Button coordinates ({click_x}, {click_y}) outside safe region ({safety_margin}-{safe_width}x{safety_margin}-{safe_height}) - adjusting")
+                
+                # If coordinates are extremely off, use a fallback center position
+                if click_x > screen_width * 1.2 or click_y > screen_height * 1.2 or click_x < 0 or click_y < 0:
+                    logger.warning("❌ Coordinates extremely out of range - using fallback center position")
+                    click_x = screen_width // 2 + np.random.randint(-50, 50)
+                    click_y = screen_height // 2 + np.random.randint(-50, 50)
+                else:
+                    # Clamp coordinates to safe region
+                    click_x = max(safety_margin, min(click_x, safe_width))
+                    click_y = max(safety_margin, min(click_y, safe_height))
+                
+                logger.warning(f"✓ Adjusted coordinates to ({click_x}, {click_y})")
+            
             # Click the button - force a click even if we're not sure about the trader
             logger.info(f"🖱️ ATTEMPTING TO CLICK: 'Unlock Content' button at ({click_x}, {click_y}), trader: {trader_name}, {timestamp_info}")
             try:
@@ -1746,7 +1821,13 @@ class ScreenCapture:
         green_channel = screenshot_np[:, :, 1]  # Green channel
         
         # Discord buttons are blue - where blue is high and red/green are lower
-        potential_button_mask = (blue_channel > 120) & (blue_channel > red_channel + 30) & (blue_channel > green_channel + 30)
+        # Convert to int32 to prevent overflow in addition operations
+        blue_channel_int = blue_channel.astype(np.int32)
+        red_channel_int = red_channel.astype(np.int32)
+        green_channel_int = green_channel.astype(np.int32)
+        
+        # Create mask using integers to prevent overflow
+        potential_button_mask = (blue_channel_int > 120) & (blue_channel_int > (red_channel_int + 30)) & (blue_channel_int > (green_channel_int + 30))
         
         # Look for button-sized clusters of blue pixels
         # Convert mask to image format OpenCV can process
@@ -1790,6 +1871,7 @@ class ScreenCapture:
             # Try to identify the trader associated with this button using improved confidence matching
             trader_name = "Unknown"
             highest_confidence = 0.0
+            best_trader = None
             
             for trader in self.target_traders:
                 # Use our improved confidence-based matching
@@ -1798,7 +1880,14 @@ class ScreenCapture:
                 # Only consider reasonably confident matches
                 if confidence > 0.6 and confidence > highest_confidence:
                     highest_confidence = confidence
+                    best_trader = trader
                     trader_name = f"{trader} [confidence: {confidence:.2f}]"
+            
+            # If we're filtering by trader but didn't find a match with high confidence, abort the click
+            if self.target_traders and not best_trader and len(self.target_traders) > 0:
+                logger.warning(f"⚠️ No target trader match found in emergency detection - aborting click")
+                logger.debug(f"Target traders: {', '.join(self.target_traders)}")
+                return False
             
             # Extract Discord message timestamp using our helper method
             discord_timestamp = self.extract_discord_timestamp(full_text)
@@ -1817,15 +1906,25 @@ class ScreenCapture:
             screen_width, screen_height = pyautogui.size()
             
             # Validate and correct coordinates to ensure they're within screen bounds
-            if click_x >= screen_width or click_y >= screen_height:
-                logger.warning(f"⚠️ Button coordinates ({click_x}, {click_y}) exceed screen bounds ({screen_width}x{screen_height}) - adjusting")
+            # Define safe margins to avoid triggering PyAutoGUI's failsafe
+            safety_margin = 50  # pixels from the edge
+            safe_width = screen_width - safety_margin
+            safe_height = screen_height - safety_margin
+            
+            # Check if coordinates are well outside screen or too close to edges
+            if click_x >= safe_width or click_y >= safe_height or click_x <= safety_margin or click_y <= safety_margin:
+                logger.warning(f"⚠️ Button coordinates ({click_x}, {click_y}) outside safe region ({safety_margin}-{safe_width}x{safety_margin}-{safe_height}) - adjusting")
                 
-                # Normalize to screen dimensions if coordinates are way off
-                # This handles cases where resolution detection was incorrect or OCR returned huge values
-                if click_x > screen_width:
-                    click_x = int((x / screenshot_np.shape[1]) * screen_width)
-                if click_y > screen_height:
-                    click_y = int((y / screenshot_np.shape[0]) * screen_height)
+                # If coordinates are extremely off, use a fallback position near the center of the screen
+                if click_x > screen_width * 1.2 or click_y > screen_height * 1.2 or click_x < 0 or click_y < 0:
+                    logger.warning("❌ Coordinates extremely out of range - using fallback center position")
+                    # Use center of screen with a slight random offset
+                    click_x = screen_width // 2 + np.random.randint(-50, 50)  
+                    click_y = screen_height // 2 + np.random.randint(-50, 50)
+                else:
+                    # Clamp coordinates to safe region
+                    click_x = max(safety_margin, min(click_x, safe_width))
+                    click_y = max(safety_margin, min(click_y, safe_height))
                 
                 logger.warning(f"✓ Adjusted coordinates to ({click_x}, {click_y})")
             
