@@ -703,22 +703,19 @@ class ScreenCapture:
                 discord_timestamp = self.extract_discord_timestamp(full_text)
                 wg_bot_text = "WG Bot"
                     
-                # Only log trader detection when we have:
-                # 1. A trader name
-                # 2. An Unlock Content button
-                # 3. Optionally, a WG Bot reference
+                # Always log trader detection when we found an Unlock Content button
+                # regardless of whether WG Bot is mentioned
                 if best_trader:
-                    # This is the core functionality you requested
-                    if wg_bot_found and unlock_text_found:
-                        logger.info(f"👤 Target trader mention detected: {best_trader}")
-                        logger.info(f"📍 Trader Button Coordinates: ({click_x}, {click_y}), size: {w}x{h}")
-                        
-                        # Add timestamp info if available
-                        if discord_timestamp:
-                            logger.info(f"⏰ Message timestamp: {discord_timestamp}")
-                    elif unlock_text_found:
-                        logger.info(f"👤 Target trader mention detected: {best_trader}")
-                        logger.info(f"📍 Trader Button Coordinates: ({click_x}, {click_y}), size: {w}x{h}")
+                    logger.info(f"👤 Target trader mention detected: {best_trader}")
+                    logger.info(f"📍 Trader Button Coordinates: ({click_x}, {click_y}), size: {w}x{h}")
+                    
+                    # Add timestamp info if available
+                    if discord_timestamp:
+                        logger.info(f"⏰ Message timestamp: {discord_timestamp}")
+                else:
+                    # If no specific trader was detected but we still found an unlock button
+                    logger.info(f"👤 No specific trader detected, but Unlock Content button found")
+                    logger.info(f"📍 Button Coordinates: ({click_x}, {click_y}), size: {w}x{h}")
                 
                 # Extract Discord message timestamp using our helper method
                 discord_timestamp = self.extract_discord_timestamp(full_text)
@@ -791,7 +788,22 @@ class ScreenCapture:
                     
                     # Regular processing will continue after this
                 except Exception as e:
-                    logger.error(f"❌ DIRECT CLICK FAILED: Error clicking button: {e}", exc_info=True)
+                    # Record detailed error information with full context
+                    timestamp_info = ""
+                    if 'discord_timestamp' in locals() and discord_timestamp:
+                        timestamp_info = f" (message from {discord_timestamp})"
+                        
+                    trader_info = ""
+                    if 'trader_name' in locals() and trader_name:
+                        trader_info = f" for trader {trader_name}"
+                        
+                    coords_info = ""
+                    if 'click_x' in locals() and 'click_y' in locals():
+                        coords_info = f" at ({click_x}, {click_y})"
+                    
+                    # Log detailed error with all available context
+                    logger.error(f"❌ DIRECT CLICK FAILED: Error clicking button{coords_info}{trader_info}{timestamp_info}: {e}", exc_info=True)
+                    
                     # Always ensure mouse buttons are released after an error
                     try:
                         pyautogui.mouseUp()
@@ -851,7 +863,33 @@ class ScreenCapture:
                                 
                             # Now we have safe coordinates, perform the click
                             button_found_via_api = True
-                            logger.info(f"🖱️ DIRECT CLICK: Clicking button at ({click_x}, {click_y}), trader: {trader_name}, Discord time: {discord_timestamp}, detected at: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+                            
+                            # Try to detect trader again before clicking
+                            best_trader = None
+                            highest_confidence = 0.0
+                            
+                            # Recheck the text around the button for traders
+                            if self.target_traders:
+                                for trader in self.target_traders:
+                                    # Use our confidence-based matching on the full text
+                                    confidence = self._match_trader_with_confidence(trader, full_text)
+                                    if confidence > 0.6 and confidence > highest_confidence:
+                                        highest_confidence = confidence
+                                        best_trader = trader
+                                        
+                            if best_trader:
+                                trader_info = f"from trader {best_trader}"
+                                trader_name = best_trader
+                            else:
+                                trader_info = "from unknown trader"
+                                trader_name = "Unknown"
+                            
+                            # Create detailed log message with all important info
+                            timestamp_info = ""
+                            if discord_timestamp:
+                                timestamp_info = f", Discord time: {discord_timestamp}"
+                            
+                            logger.info(f"🖱️ DIRECT CLICK: Button at ({click_x}, {click_y}) {trader_info}{timestamp_info}")
                             
                             # Use direct PyAutoGUI for consistent click mechanism
                             pyautogui.moveTo(click_x, click_y, duration=0.2)
@@ -861,7 +899,11 @@ class ScreenCapture:
                             
                             button_click_success = True
                             button_coordinates = (click_x, click_y)
-                            logger.info(f"✅ DIRECT CLICK SUCCESSFUL: Button clicked at ({click_x}, {click_y}) for trader {trader_name}")
+                            
+                            # Detailed success log with all context
+                            if best_trader:
+                                confidence_info = f" [confidence: {highest_confidence:.2f}]"
+                                logger.info(f"✅ CLICK SUCCESSFUL: Button at ({click_x}, {click_y}) for trader {trader_name}{timestamp_info}{confidence_info}")
                             break
                 
                 # If coordinate detection failed, fall back to direct click method
@@ -1019,15 +1061,21 @@ class ScreenCapture:
                 except:
                     pass
             except Exception as e:
-                # Record detailed error information
-                error_details = {
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                    "coordinates": (click_x, click_y) if 'click_x' in locals() and 'click_y' in locals() else "Unknown",
-                    "trader": trader_name,
-                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
-                }
-                logger.error(f"❌ CLICK FAILED: Error clicking button at {error_details['coordinates']} for trader {trader_name}: {e}", exc_info=True)
+                # Build detailed error context information
+                timestamp_info = ""
+                if 'discord_timestamp' in locals() and discord_timestamp:
+                    timestamp_info = f" (message from {discord_timestamp})"
+                    
+                trader_info = ""
+                if 'trader_name' in locals() and trader_name:
+                    trader_info = f" for trader {trader_name}"
+                    
+                coords_info = ""
+                if 'click_x' in locals() and 'click_y' in locals():
+                    coords_info = f" at ({click_x}, {click_y})"
+                
+                # Log detailed error with all available context
+                logger.error(f"❌ FALLBACK CLICK FAILED: Error clicking button{coords_info}{trader_info}{timestamp_info}: {e}", exc_info=True)
                 
                 # Always ensure mouse buttons are released after an error
                 try:
@@ -1442,10 +1490,13 @@ class ScreenCapture:
             screenshot: OpenCV image of the screen
             
         Returns:
-            list: List of regions (x, y, width, height) containing trader messages
+            list: List of regions (x, y, width, height) containing trader messages with unlock buttons first
         """
         if not self.target_traders:
+            logger.debug("No target traders specified, returning empty region list")
             return []
+        
+        logger.debug(f"Looking for messages from target traders: {', '.join(self.target_traders)}")
         
         # Get dimensions for region calculation
         h, w = screenshot.shape[:2]
@@ -1462,10 +1513,15 @@ class ScreenCapture:
             potential_message_regions = [(0, 0, w, h)]
         
         # Check each region for trader mentions
-        traders_found = []
+        traders_with_buttons = []
+        traders_without_buttons = []
         
         # Track what we've already found to avoid duplicates
         already_matched_traders = set()
+        
+        # Prioritize regions with unlock buttons
+        priority_regions = []
+        standard_regions = []
         
         for region_x, region_y, region_w, region_h in potential_message_regions:
             # Extract the region
@@ -1486,10 +1542,38 @@ class ScreenCapture:
                 # Check for specific message-context indicators like timestamp patterns
                 # that suggest this is a real Discord message and not other UI elements
                 is_likely_message = any(pattern in region_text for pattern in 
-                                        ['Today at', 'AM', 'PM', 'message', '@', 'WG Bot', 'Press the button'])
+                                        ['Today at', 'AM', 'PM', 'message', '@', 'WG Bot', 'Press the button', 'Unlock'])
                 
                 if not is_likely_message:
                     continue
+                
+                # First check if this message contains an "Unlock Content" button
+                has_unlock_button = False
+                
+                # Look for unlock content text variations in the message text
+                unlock_phrases = [
+                    "unlock content", "press to unlock", "click to unlock", 
+                    "unlock this", "unlock", "only you can see this", "premium content"
+                ]
+                
+                for phrase in unlock_phrases:
+                    if phrase.lower() in region_text.lower():
+                        has_unlock_button = True
+                        logger.debug(f"Found '{phrase}' text in message block at ({region_x}, {region_y})")
+                        break
+                
+                # If not found in text, also check visually for button
+                if not has_unlock_button:
+                    # Extract the region with some additional context area to look for the button
+                    message_with_context = screenshot[max(0, region_y-50):min(screenshot.shape[0], region_y+region_h+150), 
+                                                    max(0, region_x-50):min(screenshot.shape[1], region_x+region_w+150)]
+                    
+                    # Check for unlock button in this region
+                    unlock_button_region = self._find_unlock_button(message_with_context)
+                    has_unlock_button = unlock_button_region is not None
+                    
+                    if has_unlock_button:
+                        logger.debug(f"Found visual unlock button near message at ({region_x}, {region_y})")
                     
                 # Check for trader mentions in this specific block
                 for trader in self.target_traders:
@@ -1512,41 +1596,47 @@ class ScreenCapture:
                             f"trader_{trader.replace('@', '').replace('-', '_')}"
                         )
                         
-                        # Before logging trader detection, check if there's an "Unlock Content" button nearby
-                        # Extract the region to look for the button
-                        message_with_context = screenshot[max(0, region_y-50):min(screenshot.shape[0], region_y+region_h+150), 
-                                                        max(0, region_x-50):min(screenshot.shape[1], region_x+region_w+150)]
+                        # Format trader detection log with confidence info
+                        confidence_display = f"{confidence:.2f}"
                         
-                        # Check for unlock button in this region
-                        unlock_button_region = self._find_unlock_button(message_with_context)
-                        has_unlock_button = unlock_button_region is not None
-                        
-                        # Only log trader detection if there's an "Unlock Content" button nearby
+                        # Different logging and region handling based on unlock button presence
                         if has_unlock_button:
                             # Log detailed information with exact coordinates and button status
-                            logger.info(f"👤 Target trader mention detected: {trader}{timestamp_info} [confidence: {confidence:.2f}] with UNLOCK BUTTON ✓")
-                            logger.info(f"📍 Trader location: x={region_x}, y={region_y}, width={region_w}, height={region_h}")
+                            logger.info(f"👤 Target trader {trader} found with UNLOCK BUTTON{timestamp_info} [confidence: {confidence_display}]")
+                            logger.info(f"📍 Location: x={region_x}, y={region_y}, width={region_w}, height={region_h}")
                             if screenshot_file:
-                                logger.info(f"📸 Saved trader detection screenshot: {screenshot_file}")
+                                logger.info(f"📸 Saved trader+button screenshot: {screenshot_file}")
+                            
+                            # Add to high priority list
+                            traders_with_buttons.append(trader)
+                            # Add this region to the priority list (goes first)
+                            priority_regions.append((region_x, region_y, region_w, region_h))
                         else:
                             # Just log at debug level if no button is present
-                            logger.debug(f"Trader mention found: {trader}{timestamp_info} - but no 'Unlock Content' button nearby")
+                            logger.debug(f"Trader {trader} found{timestamp_info} [confidence: {confidence_display}] - no 'Unlock Content' button nearby")
+                            traders_without_buttons.append(trader)
+                            # Add to standard regions (processed after priority)
+                            standard_regions.append((region_x, region_y, region_w, region_h))
                             
-                        traders_found.append(trader)
                         already_matched_traders.add(trader)
-                        
-                        # Add this region to our results
-                        regions.append((region_x, region_y, region_w, region_h))
                         break
             except Exception as e:
                 logger.error(f"Error processing region for trader detection: {e}")
         
-        # Log if no traders found after enhanced detection
-        if not traders_found:
+        # Combined traders found
+        all_traders_found = traders_with_buttons + traders_without_buttons
+        
+        # Log summary of findings
+        if traders_with_buttons:
+            logger.info(f"✅ Found {len(traders_with_buttons)} traders WITH unlock buttons: {', '.join(traders_with_buttons)}")
+        
+        if not all_traders_found:
             logger.debug("No target traders found in visible messages")
-        elif len(traders_found) > 1:
-            logger.info(f"Multiple traders detected in separate message regions: {', '.join(traders_found)}")
+        elif len(all_traders_found) > 1:
+            logger.info(f"Multiple traders detected in separate message regions: {', '.join(all_traders_found)}")
             
+        # Return prioritized regions - those with unlock buttons first
+        regions = priority_regions + standard_regions
         return regions
         
     def _identify_message_blocks(self, screenshot):
@@ -1930,13 +2020,15 @@ class ScreenCapture:
             message_x = max(0, x - 150)  # Extend more to the left
             message_width = w + 300  # Extend more to the right
             
-            logger.debug(f"Checking for trader name in region: {message_x}, {message_y}, {message_width}x{message_height}")
+            logger.info(f"🔍 Checking for trader name: Region ({message_x}, {message_y}) size {message_width}x{message_height}, button at ({x}, {y}) size {w}x{h}")
             
             if message_height > 0:
                 message_roi = gray[message_y:y, message_x:message_x+message_width]
                 message_text = pytesseract.image_to_string(message_roi)
                 
-                logger.debug(f"Message text near button: {message_text}")
+                # Truncate long message texts for readable logs
+                truncated_text = message_text[:150] + "..." if len(message_text) > 150 else message_text
+                logger.info(f"📝 Message text near button: {truncated_text}")
                 
                 # Check if any target trader is in this message with improved confidence scoring
                 trader_in_message = None
