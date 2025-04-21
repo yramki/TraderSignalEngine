@@ -383,15 +383,20 @@ class EnhancedTradingUI:
         monitor_channel_check = ttk.Checkbutton(discord_frame, variable=self.monitor_channel_var)
         monitor_channel_check.grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
         
-        ttk.Label(discord_frame, text="Auto Scroll:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(discord_frame, text="Channel Name:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+        self.channel_name_var = tk.StringVar(value=self.config.get_discord('channel_name', 'trades'))
+        channel_name_entry = ttk.Entry(discord_frame, textvariable=self.channel_name_var, width=20)
+        channel_name_entry.grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
+        
+        ttk.Label(discord_frame, text="Auto Scroll:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
         self.auto_scroll_var = tk.BooleanVar(value=self.config.get_discord('auto_scroll', 'true').lower() == 'true')
         auto_scroll_check = ttk.Checkbutton(discord_frame, variable=self.auto_scroll_var)
-        auto_scroll_check.grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
+        auto_scroll_check.grid(row=4, column=1, sticky=tk.W, padx=5, pady=5)
         
-        ttk.Label(discord_frame, text="Scroll Interval (seconds):").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(discord_frame, text="Scroll Interval (seconds):").grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
         self.scroll_interval_var = tk.DoubleVar(value=float(self.config.get_discord('scroll_interval', 30.0)))
         scroll_interval_entry = ttk.Entry(discord_frame, textvariable=self.scroll_interval_var, width=10)
-        scroll_interval_entry.grid(row=4, column=1, sticky=tk.W, padx=5, pady=5)
+        scroll_interval_entry.grid(row=5, column=1, sticky=tk.W, padx=5, pady=5)
         
         # Phemex API settings
         ttk.Label(phemex_frame, text="API Key:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
@@ -607,7 +612,7 @@ class EnhancedTradingUI:
             self._log_message("Trading parameters saved successfully")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save trading parameters: {e}")
-            self.logger.error(f"Failed to save trading parameters: {e}", exc_info=True)
+            self._log_message(f"Failed to save trading parameters: {e}", "ERROR")
     
     def _save_settings(self):
         """Save general settings to the configuration"""
@@ -616,6 +621,7 @@ class EnhancedTradingUI:
             self.config.set_traders('enable_filtering', str(self.enable_filtering_var.get()).lower())
             self.config.set_discord('click_hidden_messages', str(self.click_hidden_var.get()).lower())
             self.config.set_discord('monitor_specific_channel', str(self.monitor_channel_var.get()).lower())
+            self.config.set_discord('channel_name', self.channel_name_var.get())
             self.config.set_discord('auto_scroll', str(self.auto_scroll_var.get()).lower())
             self.config.set_discord('scroll_interval', str(self.scroll_interval_var.get()))
             
@@ -634,6 +640,7 @@ class EnhancedTradingUI:
             self.screen_capture.scan_interval = float(self.config.get_general('scan_interval', 2.0))
             self.screen_capture.click_hidden_messages = self.config.get_discord('click_hidden_messages', 'true').lower() == 'true'
             self.screen_capture.monitor_specific_channel = self.config.get_discord('monitor_specific_channel', 'true').lower() == 'true'
+            self.screen_capture.channel_name = self.config.get_discord('channel_name', 'trades')
             self.screen_capture.auto_scroll = self.config.get_discord('auto_scroll', 'true').lower() == 'true'
             self.screen_capture.scroll_interval = float(self.config.get_discord('scroll_interval', 30.0))
             
@@ -651,7 +658,7 @@ class EnhancedTradingUI:
             self._log_message("Settings saved successfully")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save settings: {e}")
-            self.logger.error(f"Failed to save settings: {e}", exc_info=True)
+            self._log_message(f"Failed to save settings: {e}", "ERROR")
     
     def _refresh_history(self):
         """Refresh the history displays"""
@@ -717,7 +724,7 @@ class EnhancedTradingUI:
                 # No signal available, just continue
                 pass
             except Exception as e:
-                self.logger.error(f"Error processing signals: {e}", exc_info=True)
+                self._log_message(f"Error processing signals: {e}", "ERROR")
                 time.sleep(1)  # Avoid tight loop on error
     
     def _handle_signal(self, signal):
@@ -795,21 +802,45 @@ class EnhancedTradingUI:
                 # Similar logic to automatic trading, but with manual confirmation
                 self._log_message(f"Manually confirmed trade for {signal.symbol}")
     
-    def _log_message(self, message):
+    def _log_message(self, message, level="INFO"):
         """
         Log a message to the UI and the logger
         
         Args:
             message: Message to log
+            level: Log level (INFO, WARNING, ERROR, SUCCESS)
         """
+        # Determine log color based on level
+        color = "black"  # Default color
+        if level == "WARNING":
+            color = "orange"
+            self.logger.warning(message)
+        elif level == "ERROR":
+            color = "red"
+            self.logger.error(message)
+        elif level == "SUCCESS":
+            color = "green"
+            self.logger.info(message)
+        else:
+            # INFO level
+            self.logger.info(message)
+        
+        # Format log message with timestamp and level
+        formatted_message = f"{time.strftime('%H:%M:%S')} - [{level}] {message}\n"
+        
         # Log to the UI
         self.log_text.config(state=tk.NORMAL)
-        self.log_text.insert(tk.END, f"{time.strftime('%H:%M:%S')} - {message}\n")
+        self.log_text.insert(tk.END, formatted_message)
+        
+        # Apply color tag
+        last_line_start = self.log_text.index(f"end-{len(formatted_message) + 1}c")
+        last_line_end = self.log_text.index("end-1c")
+        self.log_text.tag_add(level, last_line_start, last_line_end)
+        self.log_text.tag_config(level, foreground=color)
+        
+        # Auto-scroll to the latest message
         self.log_text.see(tk.END)
         self.log_text.config(state=tk.DISABLED)
-        
-        # Log to the logger
-        self.logger.info(message)
     
     def _update_status(self, status, color):
         """
