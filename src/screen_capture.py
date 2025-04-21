@@ -147,9 +147,24 @@ class ScreenCapture:
             gray = self._preprocess_for_ocr(gray)
             text = self._extract_text(gray)
             
-            # Check which trader this region belongs to
+            # Check which trader this region belongs to with flexible matching
             for trader in self.target_traders:
-                if trader in text:
+                # Normalize trader names for comparison - remove special characters and normalize case
+                normalized_trader = re.sub(r'[^a-zA-Z0-9]', '', trader.lower())
+                normalized_text = text.lower()
+                
+                # Try different variations of the trader name
+                variations = [
+                    trader,                                  # Original format (e.g., @Bryce)
+                    trader.replace('@', '@-'),              # With hyphen (e.g., @-Bryce)
+                    trader.replace('@-', '@'),              # Without hyphen (e.g., @Bryce)
+                    normalized_trader,                       # Normalized (e.g., bryce)
+                    '@' + normalized_trader.lstrip('@'),     # Add @ if missing
+                ]
+                
+                # Check if any variation is in the text
+                if any(var in normalized_text for var in variations):
+                    logger.info(f"Found trader match: {trader} in text")
                     found_traders.append(trader)
                     break
             else:
@@ -268,9 +283,23 @@ class ScreenCapture:
         # Extract text using Tesseract OCR
         text = pytesseract.image_to_string(pil_image)
         
-        # Check if any target trader is mentioned in the text
+        # Check if any target trader is mentioned in the text with flexible matching
         for trader in self.target_traders:
-            if trader in text:
+            # Normalize trader names for comparison - remove special chars and normalize case
+            normalized_trader = re.sub(r'[^a-zA-Z0-9]', '', trader.lower())
+            normalized_text = text.lower()
+            
+            # Try different variations of the trader name
+            variations = [
+                trader,                                  # Original format (e.g., @Bryce)
+                trader.replace('@', '@-'),              # With hyphen (e.g., @-Bryce)
+                trader.replace('@-', '@'),              # Without hyphen (e.g., @Bryce)
+                normalized_trader,                       # Normalized (e.g., bryce)
+                '@' + normalized_trader.lstrip('@'),     # Add @ if missing
+            ]
+                
+            # Check if any variation is in the text
+            if any(var in normalized_text for var in variations):
                 logger.info(f"Found message from target trader: {trader}")
                 # For now, return the whole screen as a region
                 # In a real implementation, we would locate the specific message
@@ -426,12 +455,29 @@ class ScreenCapture:
         # First, check if this is from a target trader (if we have targets)
         if self.target_traders:
             trader_found = False
+            normalized_text = text.lower()
+            
             for trader in self.target_traders:
-                if trader in text:
+                # Normalize trader names for comparison - remove special chars and normalize case
+                normalized_trader = re.sub(r'[^a-zA-Z0-9]', '', trader.lower())
+                
+                # Try different variations of the trader name
+                variations = [
+                    trader,                                  # Original format (e.g., @Bryce)
+                    trader.replace('@', '@-'),              # With hyphen (e.g., @-Bryce)
+                    trader.replace('@-', '@'),              # Without hyphen (e.g., @Bryce)
+                    normalized_trader,                       # Normalized (e.g., bryce)
+                    '@' + normalized_trader.lstrip('@'),     # Add @ if missing
+                ]
+                
+                # Check if any variation is in the text
+                if any(var in normalized_text for var in variations):
                     trader_found = True
+                    logger.info(f"Found target trader {trader} in signal text")
                     break
             
             if not trader_found:
+                logger.debug("Signal not from a target trader, ignoring")
                 return False
         
         # Check if all required indicators are present
@@ -457,7 +503,21 @@ class ScreenCapture:
         Set the list of target traders to filter
         
         Args:
-            traders: List of trader handles (e.g., ["@yramki", "@Tareeq"])
+            traders: List of trader handles (e.g., ["@yramki", "@Tareeq"]) or None to disable filtering
         """
-        self.target_traders = traders
-        logger.info(f"Updated target traders: {', '.join(traders)}")
+        if traders is None or len(traders) == 0:
+            logger.info("Trader filtering disabled - no target traders specified")
+            self.target_traders = []
+        else:
+            self.target_traders = traders
+            logger.info(f"Updated target traders: {', '.join(traders)}")
+            logger.info("Trader filtering active - will only process signals from these traders")
+            
+            # Print variations we'll be looking for to help with debugging
+            for trader in self.target_traders:
+                variations = [
+                    trader,                                  # Original format
+                    trader.replace('@', '@-'),              # With hyphen
+                    trader.replace('@-', '@'),              # Without hyphen
+                ]
+                logger.debug(f"Will recognize variations for {trader}: {', '.join(variations)}")
