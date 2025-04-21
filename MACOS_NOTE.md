@@ -1,84 +1,76 @@
-# Special Note for macOS Users with Homebrew Python
+# macOS Enhanced Input Control
 
-If you're using macOS with Python installed via Homebrew, you may encounter the "externally-managed-environment" error when trying to install packages. This is a security feature in Homebrew's Python that prevents potentially breaking your system Python installation.
+This application includes special optimizations for macOS users to provide more reliable mouse control and user interface interactions.
 
-## Running the Application
+## Native macOS Support
 
-The installation script has created special helper scripts for running the application:
+The application includes three modes of operation:
 
-```bash
-# For the demo version
-./run_from_venv.sh demo_trading_parameters.py
+1. **PyAutoGUI Mode**: Standard cross-platform mouse control (works on Windows, macOS, Linux)
+2. **macOS Native Mode**: Uses native macOS APIs via AppleScript for more reliable control
+3. **Hybrid Mode**: Tries macOS native methods first, falls back to PyAutoGUI when necessary
 
-# For the headless version
-./run_from_venv.sh test_headless.py
+## Benefits of macOS Native Mode
 
-# For the GUI version
-./run_gui_from_venv.sh
+The native macOS input controller offers several advantages:
+
+- More reliable mouse movement and clicking
+- Better handling of screen coordinates
+- Enhanced button detection using text rather than just position or color
+- Ability to focus the Discord application window automatically
+- Better emergency cleanup to prevent mouse getting stuck
+- Properly handles macOS screen scaling factors
+
+## Configuring the Input Controller
+
+You can configure which input controller to use in `config.ini` under the `[InputControl]` section:
+
+```ini
+[InputControl]
+; Options: pyautogui, macos_native, hybrid
+controller_type = macos_native
+; Try to focus Discord window before interactions
+auto_focus_app = true
+; Try to use text-based button detection (macOS only)
+use_text_detection = true
+; Fallback to pixel-based detection if text detection fails
+enable_fallback = true
 ```
 
-## Troubleshooting Tkinter Issues
+## Additional macOS Features
 
-If you encounter GUI-related errors, you may need to install Tkinter for Homebrew's Python:
+### Text-Based Button Detection
 
-```bash
-brew install python-tk
-```
+When using macOS native mode, the application can detect buttons by their text content. This is particularly useful for detecting "Unlock Content" buttons in Discord that may move or change appearance.
 
-After installing Tkinter, you'll need to reinstall the application:
+### Application Window Focus
 
-```bash
-# Remove the existing virtual environment
-rm -rf venv
+The macOS controller can automatically bring Discord to the foreground before attempting interactions, which reduces errors caused by Discord not being the active window.
 
-# Run the installation script again
-./install.sh
-```
+### Emergency Cleanup
 
-## Manual Virtual Environment Setup
+If the application terminates unexpectedly, the macOS controller includes robust cleanup that ensures your mouse doesn't get stuck in a pressed-down state and returns to a neutral position.
 
-If you need to manually set up a virtual environment:
+## Testing the Controllers
+
+A test script is included to help you determine which controller works best in your environment:
 
 ```bash
-# Create a virtual environment
-python3 -m venv venv
-
-# Activate the virtual environment
-source venv/bin/activate
-
-# Install setuptools (important for Python 3.13+)
-pip install --upgrade pip setuptools wheel
-
-# Install requirements
-pip install -r requirements.txt
-
-# Run the application within the virtual environment
-python demo_trading_parameters.py
-# OR
-python test_headless.py
-# OR
-./run_enhanced_trading_ui.sh
+python3 test_input_controller.py
 ```
 
-## Common Issues and Solutions
+This script will:
+1. Show available controller types
+2. Test mouse movement with each controller
+3. Capture screenshots to verify functionality
+4. Test configuration loading/saving
 
-### 1. "externally-managed-environment" Error
+## Requirements for macOS Native Mode
 
-This occurs because Homebrew's Python is set up to prevent direct pip installations. The solution is to always use a virtual environment as described above.
+The macOS native controller requires:
+- macOS 10.14 or newer
+- Python 3.6+
+- Permissions for Accessibility (System Preferences → Security & Privacy → Privacy → Accessibility)
+  - Add your Terminal or Python application to this list
 
-### 2. Tkinter Not Available
-
-If you get errors like "No module named '_tkinter'" or "No module named 'tkinter'":
-
-```bash
-# Install tkinter via Homebrew
-brew install python-tk
-
-# Recreate the virtual environment
-rm -rf venv
-./install.sh
-```
-
-### 3. Python 3.13+ Setuptools Issues
-
-If you're using Python 3.13+ and encounter setuptools errors, please refer to PYTHON_313_NOTE.md for specific solutions.
+If you encounter any issues with mouse control, try switching to a different controller type in the configuration file.

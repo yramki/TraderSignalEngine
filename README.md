@@ -18,7 +18,7 @@ A trading automation platform that executes trades on Phemex by parsing Discord 
 - Python 3.6 or newer
 - pip (Python package manager)
 - For GUI: Tkinter support for Python
-- For Discord screen capture: Python OpenCV and PyAutoGUI
+- For Discord screen capture: Python OpenCV and control libraries (PyAutoGUI or native macOS)
 
 ### Quick Start
 
@@ -87,6 +87,13 @@ The main configuration is stored in `config.ini` and includes:
 - `click_hidden_messages`: Click to reveal hidden messages
 - `monitor_specific_channel`: Focus on a specific Discord channel
 - `auto_scroll`: Automatically scroll to check for new messages
+
+### Input Control Parameters
+
+- `controller_type`: Choose between input control methods (pyautogui, macos_native, hybrid)
+- `auto_focus_app`: Automatically focus Discord window before interactions
+- `use_text_detection`: Try to detect buttons by text (macOS only)
+- `enable_fallback`: Fall back to pixel detection if text detection fails
 
 ### Phemex API Parameters
 

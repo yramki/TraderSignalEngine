@@ -66,6 +66,14 @@ class Config:
             'test_mode': 'true'
         }
         
+        # Input control settings
+        self.config['InputControl'] = {
+            'controller_type': 'hybrid',  # Options: pyautogui, macos_native, hybrid
+            'auto_focus_app': 'true',
+            'use_text_detection': 'true',
+            'enable_fallback': 'true'
+        }
+        
         # Discord settings
         self.config['Discord'] = {
             'monitor_enabled': 'true',
@@ -103,7 +111,7 @@ class Config:
     
     def _ensure_sections(self):
         """Ensure all required sections exist in the configuration"""
-        required_sections = ['General', 'Discord', 'Traders', 'Phemex', 'Trading']
+        required_sections = ['General', 'InputControl', 'Discord', 'Traders', 'Phemex', 'Trading']
         
         for section in required_sections:
             if section not in self.config:
@@ -126,6 +134,10 @@ class Config:
         """Get a value from the Phemex section"""
         return self._get_value('Phemex', key, default)
     
+    def get_input_control(self, key, default=None):
+        """Get a value from the InputControl section"""
+        return self._get_value('InputControl', key, default)
+        
     def get_trading(self, key, default=None):
         """Get a value from the Trading section"""
         return self._get_value('Trading', key, default)
@@ -167,6 +179,10 @@ class Config:
     def set_phemex(self, key, value):
         """Set a value in the Phemex section"""
         self._set_value('Phemex', key, value)
+    
+    def set_input_control(self, key, value):
+        """Set a value in the InputControl section"""
+        self._set_value('InputControl', key, value)
     
     def set_trading(self, key, value):
         """Set a value in the Trading section"""
