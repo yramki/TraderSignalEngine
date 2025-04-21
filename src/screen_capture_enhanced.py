@@ -1962,6 +1962,7 @@ class ScreenCapture:
         # 2. Look for "Press the button to unlock the content" text  
         unlock_phrases = [
             "press the button to unlock the content", 
+            "press the button to unlock the content...",
             "press the button to unlock", 
             "click to view this content",
             "click to unlock",
@@ -2095,7 +2096,24 @@ class ScreenCapture:
                 missing.append("'Unlock Content' button")
                 
             if missing:
-                logger.debug(f"⚠️ Incomplete trading signal. Missing: {', '.join(missing)}")
+                # Elevate this to INFO level so it's more visible
+                logger.info(f"⚠️ INCOMPLETE TRADING SIGNAL DETECTION - Missing: {', '.join(missing)}")
+            
+            # Add more detailed diagnostic information
+            if trader_found:
+                logger.info(f"✅ DETECTED Trader: {target_trader}")
+            else:
+                logger.info(f"❌ NO TRADER detected from list: {', '.join(self.target_traders)}")
+                
+            if unlock_text_found:
+                logger.info(f"✅ DETECTED 'Unlock' text")
+            else:
+                logger.info(f"❌ NO UNLOCK TEXT detected. Looking for phrases like: {unlock_phrases[:2]}")
+                
+            if button_found:
+                logger.info(f"✅ DETECTED Button at: {button_coords}")
+            else:
+                logger.info(f"❌ NO BUTTON detected")
         
         return result["success"], result
     
