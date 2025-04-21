@@ -173,8 +173,8 @@ class ScreenCapture:
             # Convert to HSV for color detection
             hsv = cv2.cvtColor(screenshot_cv, cv2.COLOR_BGR2HSV)
             
-            # Apply a very permissive blue mask to catch Discord buttons
-            blue_mask = cv2.inRange(hsv, np.array([80, 40, 100]), np.array([170, 255, 255]))
+            # Apply a VERY permissive blue mask to catch Discord buttons - even lighter blues
+            blue_mask = cv2.inRange(hsv, np.array([70, 30, 100]), np.array([200, 255, 255]))
             contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
             # Sort by area (largest first) and look for button-like rectangles
@@ -182,13 +182,25 @@ class ScreenCapture:
             
             # Look through the first several contours (Discord's blue button should be among the larger elements)
             direct_click_candidates = []
+            
+            # Also look for RGB blue directly as a fallback
+            rgb_image = cv2.cvtColor(screenshot_cv, cv2.COLOR_BGR2RGB)
+            
+            # If we're having detection issues, also use our emergency detection code right away
+            emergency_button_candidates = self._find_emergency_buttons(screenshot_cv)
+            if emergency_button_candidates:
+                logger.warning("🚨 Using emergency button detection as additional source")
+                for x, y, w, h, score in emergency_button_candidates[:5]:  # Add top 5 emergency candidates
+                    direct_click_candidates.append((x, y, w, h))
+                    logger.info(f"🚨 Emergency detection: Found potential button at ({x}, {y}), size: {w}x{h}, score: {score:.2f}")
+            
             for i, contour in enumerate(sorted_contours):
-                if i >= 20:  # Only check the 20 largest blue areas
+                if i >= 30:  # Check more candidates (30 instead of 20)
                     break
                     
                 x, y, w, h = cv2.boundingRect(contour)
-                # Look for button-like dimensions - typical Discord buttons are ~140x35
-                if 70 < w < 250 and 20 < h < 60:
+                # Much more permissive button dimensions
+                if 50 < w < 300 and 15 < h < 70:
                     direct_click_candidates.append((x, y, w, h))
                     logger.info(f"📋 Direct search: Found potential button at ({x}, {y}), size: {w}x{h}")
                     
@@ -913,6 +925,68 @@ class ScreenCapture:
         else:
             logger.info("Trader filtering disabled - will process signals from any trader")
             
+    def _find_emergency_buttons(self, screenshot):
+        """
+        Find potential Discord buttons using aggressive detection
+        This method is used by both regular detection and emergency detection
+        
+        Args:
+            screenshot: OpenCV image of the screen
+            
+        Returns:
+            List of potential button candidates (x, y, w, h, score)
+        """
+        logger.debug("Running emergency button detection")
+        
+        # Convert to RGB for better color detection
+        rgb_image = cv2.cvtColor(screenshot, cv2.COLOR_BGR2RGB)
+        height, width = rgb_image.shape[:2]
+        
+        # Discord buttons are blue - create mask for blues
+        # Use direct RGB channel comparison for more reliable detection
+        blue_mask = np.zeros((height, width), dtype=np.uint8)
+        
+        # Condition for Discord blue: blue channel is significantly higher than others
+        for y in range(0, height, 2):  # Skip every other row for speed
+            for x in range(0, width, 2):  # Skip every other column for speed
+                b, g, r = rgb_image[y, x]
+                # Discord blue: high blue, medium green, low red
+                if b > 120 and b > r + 30 and b > g + 20:
+                    blue_mask[y, x] = 255
+        
+        # Apply morphological operations to clean up the mask
+        kernel = np.ones((3, 3), np.uint8)
+        blue_mask = cv2.dilate(blue_mask, kernel, iterations=2)
+        blue_mask = cv2.erode(blue_mask, kernel, iterations=1)
+        
+        # Find contours in the mask
+        contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Look for button-sized contours
+        candidates = []
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            
+            # Filter based on size (Discord buttons are typically ~140x35)
+            if 50 < w < 300 and 15 < h < 70:
+                # Calculate match score based on aspect ratio and size
+                ideal_ratio = 140/35  # Ideal width/height ratio
+                actual_ratio = w / max(1, h)  # Avoid division by zero
+                ratio_score = 1.0 - min(abs(actual_ratio - ideal_ratio) / 2.0, 1.0)
+                
+                size_score = 1.0 - (abs(w - 140) / 100 + abs(h - 35) / 25) / 2
+                
+                # Combine scores with ratio being most important
+                score = ratio_score * 0.6 + size_score * 0.4
+                
+                candidates.append((x, y, w, h, score))
+        
+        # Sort by score (best first)
+        candidates.sort(key=lambda x: x[4], reverse=True)
+        
+        # Return top candidates
+        return candidates[:10]  # Return top 10 candidates
+    
     def force_click_unlock_button(self):
         """
         Emergency function to detect and click "Unlock Content" buttons
