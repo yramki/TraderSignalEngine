@@ -20,3 +20,9 @@ pyautogui
 pycryptodome
 pytesseract
 requests
+configparser
+numpy
+opencv-python
+Pillow
+pyautogui
+requests

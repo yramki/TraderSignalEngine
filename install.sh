@@ -105,12 +105,52 @@ create_directories() {
 install_modules() {
     print_status "Installing Python modules..."
     
-    # Install Python modules
-    python3 -m pip install -r requirements.txt
-    
-    if [ $? -ne 0 ]; then
-        print_error "Failed to install Python modules. Please try again."
-        exit 1
+    # Check if we're in a externally managed environment
+    if python3 -m pip install --dry-run -r requirements.txt 2>&1 | grep -q "externally-managed-environment"; then
+        print_warning "Detected externally managed environment."
+        print_status "Creating a virtual environment to install dependencies."
+        
+        # Create a virtual environment
+        python3 -m venv venv
+        if [ $? -ne 0 ]; then
+            print_error "Failed to create virtual environment."
+            print_status "You may need to install the venv module with: python3 -m pip install virtualenv"
+            exit 1
+        fi
+        
+        # Activate the virtual environment
+        source venv/bin/activate
+        
+        # Install in the virtual environment
+        pip install -r requirements.txt
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install Python modules in virtual environment."
+            exit 1
+        fi
+        
+        # Create a script to activate the environment
+        cat > run_from_venv.sh << 'EOF'
+#!/bin/bash
+source venv/bin/activate
+python3 "$@"
+EOF
+        chmod +x run_from_venv.sh
+        
+        print_status "Modules installed successfully in virtual environment"
+        print_status "To run the application, use: ./run_from_venv.sh test_headless.py"
+        
+        # Deactivate the virtual environment
+        deactivate
+    else
+        # Try standard installation
+        python3 -m pip install -r requirements.txt
+        
+        if [ $? -ne 0 ]; then
+            print_error "Failed to install Python modules. Please try installing manually."
+            exit 1
+        fi
+        
+        print_status "Modules installed successfully using standard pip"
     fi
     
     # Mark requirements as installed

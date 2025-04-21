@@ -6,62 +6,44 @@ This script demonstrates trading parameters functionality without requiring a GU
 
 import os
 import sys
-import logging
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
-
-logger = logging.getLogger(__name__)
+import json
+import time
 
 class Config:
     """Simple configuration class for testing"""
     
     def __init__(self):
-        self.config = {
-            'Trading': {
-                'amount_per_trade': '100.0',
-                'max_position_size': '500.0',
-                'stop_loss_percentage': '5.0',
-                'take_profit_percentage': '15.0',
-                'default_leverage': '5',
-                'enable_stop_loss': 'true',
-                'enable_take_profit': 'true',
-                'use_signal_leverage': 'true',
-                'max_leverage': '20',
-                'min_market_cap': '1000000',
-                'enable_market_cap_filter': 'true',
-                'enable_auto_trading': 'false',
-                'auto_close_trades': 'true',
-                'max_simultaneous_trades': '5'
-            }
+        self.trading_params = {
+            'amount_per_trade': 100.0,
+            'max_position_size': 500.0,
+            'stop_loss_percentage': 5.0,
+            'take_profit_percentage': 15.0,
+            'default_leverage': 5,
+            'enable_stop_loss': True,
+            'enable_take_profit': True,
+            'use_signal_leverage': True,
+            'max_leverage': 20,
+            'min_market_cap': 1000000,
+            'enable_market_cap_filter': True,
+            'enable_auto_trading': False,
+            'auto_close_trades': True,
+            'max_simultaneous_trades': 5
         }
     
     def get_trading(self, key, default=None):
         """Get a value from the Trading section"""
-        if 'Trading' in self.config and key in self.config['Trading']:
-            return self.config['Trading'][key]
-        return default
+        return self.trading_params.get(key, default)
     
     def set_trading(self, key, value):
         """Set a value in the Trading section"""
-        if 'Trading' not in self.config:
-            self.config['Trading'] = {}
-        self.config['Trading'][key] = value
-        print(f"Set {key} = {value}")
-        
+        self.trading_params[key] = value
+    
     def save(self):
         """Save configuration (print for testing)"""
-        print("Configuration saved:")
-        for section, values in self.config.items():
-            print(f"[{section}]")
-            for key, value in values.items():
-                print(f"{key} = {value}")
+        print("\nSaving configuration...")
+        for key, value in self.trading_params.items():
+            print(f"  {key} = {value}")
+        print("Configuration saved.\n")
 
 class TradingParams:
     """Mock trading parameters class (no GUI)"""
@@ -69,90 +51,76 @@ class TradingParams:
     def __init__(self, config):
         """Initialize with a configuration object"""
         self.config = config
-        self.load_params()
         
+        # Trading parameters
+        self.amount_per_trade = 100.0
+        self.max_position_size = 500.0
+        self.stop_loss_percentage = 5.0
+        self.take_profit_percentage = 15.0
+        self.default_leverage = 5
+        self.enable_stop_loss = True
+        self.enable_take_profit = True
+        self.use_signal_leverage = True
+        self.max_leverage = 20
+        self.min_market_cap = 1000000
+        self.enable_market_cap_filter = True
+        self.enable_auto_trading = False
+        self.auto_close_trades = True
+        self.max_simultaneous_trades = 5
+        
+        # Load parameters from configuration
+        self.load_params()
+    
     def load_params(self):
         """Load parameters from configuration"""
-        # Position size settings
         self.amount_per_trade = float(self.config.get_trading('amount_per_trade', 100.0))
         self.max_position_size = float(self.config.get_trading('max_position_size', 500.0))
-        
-        # Risk management settings
-        self.stop_loss_pct = float(self.config.get_trading('stop_loss_percentage', 5.0))
-        self.take_profit_pct = float(self.config.get_trading('take_profit_percentage', 15.0))
+        self.stop_loss_percentage = float(self.config.get_trading('stop_loss_percentage', 5.0))
+        self.take_profit_percentage = float(self.config.get_trading('take_profit_percentage', 15.0))
+        self.default_leverage = int(self.config.get_trading('default_leverage', 5))
         self.enable_stop_loss = self.config.get_trading('enable_stop_loss', 'true').lower() == 'true'
         self.enable_take_profit = self.config.get_trading('enable_take_profit', 'true').lower() == 'true'
-        
-        # Leverage settings
-        self.leverage = int(self.config.get_trading('default_leverage', 5))
         self.use_signal_leverage = self.config.get_trading('use_signal_leverage', 'true').lower() == 'true'
         self.max_leverage = int(self.config.get_trading('max_leverage', 20))
-        
-        # Filtering settings
         self.min_market_cap = int(self.config.get_trading('min_market_cap', 1000000))
         self.enable_market_cap_filter = self.config.get_trading('enable_market_cap_filter', 'true').lower() == 'true'
-        
-        # Auto trading settings
         self.enable_auto_trading = self.config.get_trading('enable_auto_trading', 'false').lower() == 'true'
         self.auto_close_trades = self.config.get_trading('auto_close_trades', 'true').lower() == 'true'
         self.max_simultaneous_trades = int(self.config.get_trading('max_simultaneous_trades', 5))
     
     def save_params(self):
         """Save parameters to configuration"""
-        # Position size settings
-        self.config.set_trading('amount_per_trade', str(self.amount_per_trade))
-        self.config.set_trading('max_position_size', str(self.max_position_size))
+        self.config.set_trading('amount_per_trade', self.amount_per_trade)
+        self.config.set_trading('max_position_size', self.max_position_size)
+        self.config.set_trading('stop_loss_percentage', self.stop_loss_percentage)
+        self.config.set_trading('take_profit_percentage', self.take_profit_percentage)
+        self.config.set_trading('default_leverage', self.default_leverage)
+        self.config.set_trading('enable_stop_loss', 'true' if self.enable_stop_loss else 'false')
+        self.config.set_trading('enable_take_profit', 'true' if self.enable_take_profit else 'false')
+        self.config.set_trading('use_signal_leverage', 'true' if self.use_signal_leverage else 'false')
+        self.config.set_trading('max_leverage', self.max_leverage)
+        self.config.set_trading('min_market_cap', self.min_market_cap)
+        self.config.set_trading('enable_market_cap_filter', 'true' if self.enable_market_cap_filter else 'false')
+        self.config.set_trading('enable_auto_trading', 'true' if self.enable_auto_trading else 'false')
+        self.config.set_trading('auto_close_trades', 'true' if self.auto_close_trades else 'false')
+        self.config.set_trading('max_simultaneous_trades', self.max_simultaneous_trades)
         
-        # Risk management settings
-        self.config.set_trading('stop_loss_percentage', str(self.stop_loss_pct))
-        self.config.set_trading('take_profit_percentage', str(self.take_profit_pct))
-        self.config.set_trading('enable_stop_loss', str(self.enable_stop_loss).lower())
-        self.config.set_trading('enable_take_profit', str(self.enable_take_profit).lower())
-        
-        # Leverage settings
-        self.config.set_trading('default_leverage', str(self.leverage))
-        self.config.set_trading('use_signal_leverage', str(self.use_signal_leverage).lower())
-        self.config.set_trading('max_leverage', str(self.max_leverage))
-        
-        # Filtering settings
-        self.config.set_trading('min_market_cap', str(self.min_market_cap))
-        self.config.set_trading('enable_market_cap_filter', str(self.enable_market_cap_filter).lower())
-        
-        # Auto trading settings
-        self.config.set_trading('enable_auto_trading', str(self.enable_auto_trading).lower())
-        self.config.set_trading('auto_close_trades', str(self.auto_close_trades).lower())
-        self.config.set_trading('max_simultaneous_trades', str(self.max_simultaneous_trades))
-        
-        # Save configuration
         self.config.save()
     
     def display_params(self):
         """Display current parameters"""
-        print("\n=== CURRENT TRADING PARAMETERS ===")
-        
-        print("\n== Position Size Settings ==")
+        print("\n=== Current Trading Parameters ===")
         print(f"Amount per Trade: ${self.amount_per_trade}")
-        print(f"Max Position Size: ${self.max_position_size}")
-        
-        print("\n== Risk Management Settings ==")
-        print(f"Stop Loss: {self.stop_loss_pct}%")
-        print(f"Take Profit: {self.take_profit_pct}%")
-        print(f"Enable Stop Loss: {self.enable_stop_loss}")
-        print(f"Enable Take Profit: {self.enable_take_profit}")
-        
-        print("\n== Leverage Settings ==")
-        print(f"Default Leverage: {self.leverage}x")
-        print(f"Use Signal Leverage: {self.use_signal_leverage}")
+        print(f"Maximum Position Size: ${self.max_position_size}")
+        print(f"Stop Loss: {self.stop_loss_percentage}% {'(Enabled)' if self.enable_stop_loss else '(Disabled)'}")
+        print(f"Take Profit: {self.take_profit_percentage}% {'(Enabled)' if self.enable_take_profit else '(Disabled)'}")
+        print(f"Default Leverage: {self.default_leverage}x")
+        print(f"Use Signal Leverage: {'Yes' if self.use_signal_leverage else 'No'}")
         print(f"Maximum Leverage: {self.max_leverage}x")
-        
-        print("\n== Market Filtering Settings ==")
-        print(f"Minimum Market Cap: ${self.min_market_cap}")
-        print(f"Enable Market Cap Filter: {self.enable_market_cap_filter}")
-        
-        print("\n== Auto Trading Settings ==")
-        print(f"Enable Automatic Trading: {self.enable_auto_trading}")
-        print(f"Automatically Close Trades: {self.auto_close_trades}")
-        print(f"Max Simultaneous Trades: {self.max_simultaneous_trades}")
+        print(f"Minimum Market Cap: ${self.min_market_cap:,} {'(Enabled)' if self.enable_market_cap_filter else '(Disabled)'}")
+        print(f"Auto Trading: {'Enabled' if self.enable_auto_trading else 'Disabled'}")
+        print(f"Auto Close Trades: {'Yes' if self.auto_close_trades else 'No'}")
+        print(f"Maximum Simultaneous Trades: {self.max_simultaneous_trades}")
         print("===================================\n")
 
 def simulate_trading(params):
@@ -162,76 +130,85 @@ def simulate_trading(params):
     Args:
         params: TradingParams object with trading parameters
     """
-    print("\n=== SIMULATING TRADING SCENARIO ===")
+    print("\n=== Trading Simulation ===")
+    print("Simulating a trading scenario with current parameters...")
     
-    # Sample signal
-    signal = {
-        'symbol': 'BTC',
-        'direction': 'long',
-        'entry_price': 60000,
-        'targets': [61000, 62000, 63000],
-        'stop_loss': 58000,
-        'leverage': 10,
-        'trader': '@crypto_expert'
-    }
+    # Initial capital
+    capital = 1000.0
+    print(f"Initial Capital: ${capital}")
     
-    print(f"Received signal: {signal['direction'].upper()} {signal['symbol']} from {signal['trader']}")
+    # Simulate a trade signal
+    symbol = "BTC/USDT"
+    price = 50000.0
+    leverage = 10
+    market_cap = 500000000
+    
+    print(f"\nReceived signal for {symbol} at ${price}")
+    print(f"Signal suggests {leverage}x leverage")
+    print(f"Market cap: ${market_cap:,}")
     
     # Check market cap filter
-    if params.enable_market_cap_filter:
-        # Simulate market cap check
-        market_cap = 500000000000  # $500B for BTC
-        print(f"Checking market cap: ${market_cap} (minimum: ${params.min_market_cap})")
-        if market_cap < params.min_market_cap:
-            print(f"REJECTED: Market cap too low")
-            return
-    
-    # Determine amount
-    amount = params.amount_per_trade
-    if amount > params.max_position_size:
-        amount = params.max_position_size
+    if params.enable_market_cap_filter and market_cap < params.min_market_cap:
+        print(f"Trade rejected: Market cap (${market_cap:,}) is below minimum threshold (${params.min_market_cap:,})")
+        return
     
     # Determine leverage
-    leverage = params.leverage
-    if params.use_signal_leverage and 'leverage' in signal:
-        leverage = signal['leverage']
-        if leverage > params.max_leverage:
-            leverage = params.max_leverage
-    
-    print(f"Trade amount: ${amount}")
-    print(f"Using leverage: {leverage}x")
-    
-    # Check if auto-trading is enabled
-    if params.enable_auto_trading:
-        print("Auto-trading enabled, executing trade automatically")
+    actual_leverage = leverage if params.use_signal_leverage else params.default_leverage
+    if actual_leverage > params.max_leverage:
+        actual_leverage = params.max_leverage
+        print(f"Leverage capped at {actual_leverage}x (maximum allowed)")
     else:
-        print("Auto-trading disabled, awaiting manual confirmation")
-        confirm = input("Execute this trade? (y/n): ")
-        if confirm.lower() != 'y':
-            print("Trade canceled")
-            return
+        print(f"Using leverage: {actual_leverage}x")
     
-    print(f"Executing {signal['direction'].upper()} trade for {signal['symbol']}")
-    print(f"Entry price: ${signal['entry_price']}")
+    # Calculate position size
+    position_size = params.amount_per_trade
+    if position_size > params.max_position_size:
+        position_size = params.max_position_size
+        print(f"Position size capped at ${position_size} (maximum allowed)")
     
-    # Set up stop loss and take profit
+    # Calculate contracts
+    contracts = position_size / price * actual_leverage
+    print(f"Opening position: ${position_size} ({contracts:.8f} contracts)")
+    
+    # Calculate stop loss and take profit
     if params.enable_stop_loss:
-        sl_price = signal['entry_price'] * (1 - params.stop_loss_pct/100)
-        print(f"Setting stop loss at ${sl_price:.2f} ({params.stop_loss_pct}%)")
+        stop_loss_price = price * (1 - params.stop_loss_percentage / 100)
+        print(f"Stop Loss set at ${stop_loss_price:.2f} ({params.stop_loss_percentage}% from entry)")
     
     if params.enable_take_profit:
-        tp_price = signal['entry_price'] * (1 + params.take_profit_pct/100)
-        print(f"Setting take profit at ${tp_price:.2f} ({params.take_profit_pct}%)")
+        take_profit_price = price * (1 + params.take_profit_percentage / 100)
+        print(f"Take Profit set at ${take_profit_price:.2f} ({params.take_profit_percentage}% from entry)")
     
-    print("Trade executed successfully")
+    # Simulate price movement
+    print("\nSimulating price movement...")
+    time.sleep(1)
     
-    # Check auto-close
-    if params.auto_close_trades:
-        print("Auto-close enabled, position will close automatically at stop loss or take profit")
+    # Random outcome (simplified)
+    import random
+    outcome = random.choice(["profit", "loss", "ongoing"])
+    
+    if outcome == "profit":
+        new_price = price * (1 + params.take_profit_percentage / 100)
+        profit = position_size * (params.take_profit_percentage / 100) * actual_leverage
+        print(f"Price moved to ${new_price:.2f}")
+        print(f"Take profit triggered! Profit: ${profit:.2f}")
+        new_capital = capital + profit
+    elif outcome == "loss":
+        new_price = price * (1 - params.stop_loss_percentage / 100)
+        loss = position_size * (params.stop_loss_percentage / 100) * actual_leverage
+        print(f"Price moved to ${new_price:.2f}")
+        print(f"Stop loss triggered! Loss: ${loss:.2f}")
+        new_capital = capital - loss
     else:
-        print("Auto-close disabled, position requires manual closing")
+        new_price = price * 1.02  # 2% movement
+        print(f"Price moved to ${new_price:.2f}")
+        print("Position still open, no trigger hit yet")
+        unrealized_profit = position_size * 0.02 * actual_leverage
+        print(f"Unrealized profit: ${unrealized_profit:.2f}")
+        new_capital = capital
     
-    print("===================================\n")
+    print(f"\nCapital: ${new_capital:.2f}")
+    print("=========================\n")
 
 def modify_parameters(params):
     """
@@ -240,129 +217,123 @@ def modify_parameters(params):
     Args:
         params: TradingParams object to modify
     """
-    while True:
-        print("\n=== MODIFY TRADING PARAMETERS ===")
-        print("1. Change Amount per Trade")
-        print("2. Change Stop Loss Percentage")
-        print("3. Change Take Profit Percentage")
-        print("4. Change Minimum Market Cap")
-        print("5. Toggle Auto Trading")
-        print("6. Toggle Stop Loss")
-        print("7. Toggle Take Profit")
-        print("8. Change Default Leverage")
-        print("9. Save and Return")
-        print("0. Exit without Saving")
-        
-        choice = input("\nEnter your choice (0-9): ")
-        
-        if choice == '1':
-            try:
-                amount = float(input("Enter new Amount per Trade ($): "))
-                params.amount_per_trade = amount
-                print(f"Amount per Trade set to ${amount}")
-            except ValueError:
-                print("Invalid input. Please enter a number.")
-        
-        elif choice == '2':
-            try:
-                sl = float(input("Enter new Stop Loss Percentage (%): "))
-                params.stop_loss_pct = sl
-                print(f"Stop Loss set to {sl}%")
-            except ValueError:
-                print("Invalid input. Please enter a number.")
-        
-        elif choice == '3':
-            try:
-                tp = float(input("Enter new Take Profit Percentage (%): "))
-                params.take_profit_pct = tp
-                print(f"Take Profit set to {tp}%")
-            except ValueError:
-                print("Invalid input. Please enter a number.")
-        
-        elif choice == '4':
-            try:
-                mcap = int(input("Enter new Minimum Market Cap ($): "))
-                params.min_market_cap = mcap
-                print(f"Minimum Market Cap set to ${mcap}")
-            except ValueError:
-                print("Invalid input. Please enter a number.")
-        
-        elif choice == '5':
-            params.enable_auto_trading = not params.enable_auto_trading
-            print(f"Auto Trading {'enabled' if params.enable_auto_trading else 'disabled'}")
-        
-        elif choice == '6':
-            params.enable_stop_loss = not params.enable_stop_loss
-            print(f"Stop Loss {'enabled' if params.enable_stop_loss else 'disabled'}")
-        
-        elif choice == '7':
-            params.enable_take_profit = not params.enable_take_profit
-            print(f"Take Profit {'enabled' if params.enable_take_profit else 'disabled'}")
-        
-        elif choice == '8':
-            try:
-                lev = int(input("Enter new Default Leverage: "))
-                params.leverage = lev
-                print(f"Default Leverage set to {lev}x")
-            except ValueError:
-                print("Invalid input. Please enter a number.")
-        
-        elif choice == '9':
-            params.save_params()
-            break
-        
-        elif choice == '0':
-            return False
-        
-        else:
-            print("Invalid choice. Please try again.")
+    print("\n=== Modify Trading Parameters ===")
+    print("Enter new values or press Enter to keep current values:")
     
-    return True
+    try:
+        # Amount per trade
+        input_value = input(f"Amount per Trade (current: ${params.amount_per_trade}): ")
+        if input_value.strip():
+            params.amount_per_trade = float(input_value)
+        
+        # Max position size
+        input_value = input(f"Maximum Position Size (current: ${params.max_position_size}): ")
+        if input_value.strip():
+            params.max_position_size = float(input_value)
+        
+        # Stop loss percentage
+        input_value = input(f"Stop Loss Percentage (current: {params.stop_loss_percentage}%): ")
+        if input_value.strip():
+            params.stop_loss_percentage = float(input_value)
+        
+        # Enable stop loss
+        input_value = input(f"Enable Stop Loss (current: {'Yes' if params.enable_stop_loss else 'No'}) [y/n]: ")
+        if input_value.strip() and input_value.lower() in ['y', 'n']:
+            params.enable_stop_loss = input_value.lower() == 'y'
+        
+        # Take profit percentage
+        input_value = input(f"Take Profit Percentage (current: {params.take_profit_percentage}%): ")
+        if input_value.strip():
+            params.take_profit_percentage = float(input_value)
+        
+        # Enable take profit
+        input_value = input(f"Enable Take Profit (current: {'Yes' if params.enable_take_profit else 'No'}) [y/n]: ")
+        if input_value.strip() and input_value.lower() in ['y', 'n']:
+            params.enable_take_profit = input_value.lower() == 'y'
+        
+        # Default leverage
+        input_value = input(f"Default Leverage (current: {params.default_leverage}x): ")
+        if input_value.strip():
+            params.default_leverage = int(input_value)
+        
+        # Use signal leverage
+        input_value = input(f"Use Signal Leverage (current: {'Yes' if params.use_signal_leverage else 'No'}) [y/n]: ")
+        if input_value.strip() and input_value.lower() in ['y', 'n']:
+            params.use_signal_leverage = input_value.lower() == 'y'
+        
+        # Max leverage
+        input_value = input(f"Maximum Leverage (current: {params.max_leverage}x): ")
+        if input_value.strip():
+            params.max_leverage = int(input_value)
+        
+        # Min market cap
+        input_value = input(f"Minimum Market Cap (current: ${params.min_market_cap:,}): ")
+        if input_value.strip():
+            params.min_market_cap = int(input_value)
+        
+        # Enable market cap filter
+        input_value = input(f"Enable Market Cap Filter (current: {'Yes' if params.enable_market_cap_filter else 'No'}) [y/n]: ")
+        if input_value.strip() and input_value.lower() in ['y', 'n']:
+            params.enable_market_cap_filter = input_value.lower() == 'y'
+        
+        # Auto trading
+        input_value = input(f"Enable Auto Trading (current: {'Yes' if params.enable_auto_trading else 'No'}) [y/n]: ")
+        if input_value.strip() and input_value.lower() in ['y', 'n']:
+            params.enable_auto_trading = input_value.lower() == 'y'
+        
+        # Auto close trades
+        input_value = input(f"Auto Close Trades (current: {'Yes' if params.auto_close_trades else 'No'}) [y/n]: ")
+        if input_value.strip() and input_value.lower() in ['y', 'n']:
+            params.auto_close_trades = input_value.lower() == 'y'
+        
+        # Max simultaneous trades
+        input_value = input(f"Maximum Simultaneous Trades (current: {params.max_simultaneous_trades}): ")
+        if input_value.strip():
+            params.max_simultaneous_trades = int(input_value)
+        
+        # Save parameters
+        print("\nSaving parameters...")
+        params.save_params()
+        
+    except ValueError as e:
+        print(f"\nError: {e}")
+        print("Please enter valid values. No changes were saved.")
 
 def main():
     """Main function"""
-    print("=== ENHANCED TRADING PARAMETERS TEST (HEADLESS) ===")
-    print("This is a command-line test of the Enhanced Trading Parameters functionality")
+    print("===================================================")
+    print("    DISCORD TRADING SIGNAL SCRAPER - PARAMETERS    ")
+    print("===================================================")
+    print("This is a headless test for the enhanced trading parameters")
+    print("It demonstrates how the trading parameters affect trade execution")
     
-    # Create configuration
+    # Create configuration and parameters objects
     config = Config()
-    
-    # Create parameters
     params = TradingParams(config)
     
-    # Display current parameters
-    params.display_params()
-    
     while True:
-        print("\n=== MAIN MENU ===")
+        print("\nMenu:")
         print("1. Display Current Parameters")
         print("2. Modify Parameters")
         print("3. Simulate Trading")
-        print("4. Save Parameters")
+        print("4. Save Configuration")
         print("5. Exit")
         
         choice = input("\nEnter your choice (1-5): ")
         
         if choice == '1':
             params.display_params()
-        
         elif choice == '2':
-            if not modify_parameters(params):
-                print("Parameters not saved")
-        
+            modify_parameters(params)
         elif choice == '3':
             simulate_trading(params)
-        
         elif choice == '4':
             params.save_params()
-            print("Parameters saved successfully")
-        
         elif choice == '5':
-            print("Exiting...")
+            print("\nExiting program. Goodbye!")
             break
-        
         else:
-            print("Invalid choice. Please try again.")
+            print("\nInvalid choice. Please try again.")
 
 if __name__ == "__main__":
     main()
