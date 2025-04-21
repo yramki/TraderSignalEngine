@@ -891,24 +891,29 @@ class EnhancedTradingUI:
                         
                         # Try to get Discord status with all details
                         try:
-                            # Check how many values the method returns - it might return different signature depending on version
+                            # The _is_discord_visible method actually returns only a boolean 
+                            # but updates internal state with detailed detection info
                             result = self.screen_capture._is_discord_visible(screenshot)
                             
-                            if isinstance(result, tuple) and len(result) == 3:
-                                # New version returning 3 values
-                                discord_visible, server_present, channel_present = result
-                                discord_detected = discord_visible
-                                server_detected = server_present
-                                channel_detected = channel_present
-                                self._log_message(f"Discord detector: Discord={discord_visible}, Server={server_present}, Channel={channel_present}", level="INFO")
-                            elif isinstance(result, bool):
-                                # Old version returning just a boolean
-                                discord_detected = result
-                                self._log_message(f"Discord detector (legacy): Discord={result}", level="INFO")
+                            # Get detailed status info from logs - we need to check if our logs
+                            # indicate the channel is actually detected despite what the method returns
+                            discord_detected = result
+                            
+                            # Use more reliable log output to check if channel was detected
+                            # We know channel is detected if the logs contain "trades channel detected" strings
+                            if "✅ Discord 'Wealth Group' server and 'trades' channel detected!" in self.log_text.get("1.0", tk.END):
+                                # This indicates both server and channel were properly detected
+                                server_detected = True
+                                channel_detected = True
+                                self._log_message(f"Discord detector corrected: Discord=True, Server=True, Channel=True", level="INFO")
+                            elif result:
+                                # Discord is detected but not sure about channel/server
+                                server_detected = "Wealth Group" in self.log_text.get("1.0", tk.END)
+                                channel_detected = "trades channel" in self.log_text.get("1.0", tk.END)
+                                self._log_message(f"Discord detector: Discord=True, Server={server_detected}, Channel={channel_detected}", level="INFO")
                             else:
-                                # Unknown result format
-                                discord_detected = bool(result)  # Convert whatever we got to a boolean
-                                self._log_message(f"Unknown Discord detection result: {result}", level="WARNING")
+                                # Old version or detection failed
+                                self._log_message(f"Discord detector (legacy): Discord={result}", level="INFO")
                         except Exception as e:
                             # If detection fails completely, set all to False
                             discord_detected = False

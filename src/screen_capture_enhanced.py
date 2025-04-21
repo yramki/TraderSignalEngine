@@ -1289,7 +1289,17 @@ class ScreenCapture:
         # Take a screenshot
         screenshot = pyautogui.screenshot()
         screenshot_np = np.array(screenshot)
+        screenshot_cv = cv2.cvtColor(screenshot_np, cv2.COLOR_RGB2BGR)
         
+        # First verify Discord is visible before proceeding
+        if not self._is_discord_visible(screenshot_cv):
+            logger.warning("❌ EMERGENCY BUTTON CLICK ABORTED - Discord not visible")
+            return 0
+            
+        # Log the screen size to help with coordinate debugging
+        screen_width, screen_height = pyautogui.size()
+        logger.info(f"Screen resolution: {screen_width}x{screen_height}")
+            
         # Find blue pixels (Discord button color)
         blue_channel = screenshot_np[:, :, 2]  # Blue channel in RGB
         red_channel = screenshot_np[:, :, 0]    # Red channel
@@ -1344,20 +1354,10 @@ class ScreenCapture:
                     trader_name = trader
                     break
             
-            # Try to extract the Discord message timestamp using regex
-            discord_timestamp = None
-            # Look for patterns like "5:17 AM" or "11:45 PM" in the text
-            timestamp_patterns = [
-                r'\d{1,2}:\d{2}\s*[AaPp][Mm]',  # 5:17 AM or 11:45 PM
-                r'\d{1,2}:\d{2}'                # 5:17 or 23:45 (24-hour format)
-            ]
-            
-            for pattern in timestamp_patterns:
-                timestamp_matches = re.findall(pattern, full_text)
-                if timestamp_matches:
-                    discord_timestamp = timestamp_matches[0].strip()
-                    logger.info(f"📅 Found Discord message timestamp: {discord_timestamp}")
-                    break
+            # Extract Discord message timestamp using our helper method
+            discord_timestamp = self.extract_discord_timestamp(full_text)
+            if discord_timestamp:
+                logger.info(f"📅 Found Discord message timestamp: {discord_timestamp}")
                     
             # Get our application timestamp for tracking
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -1366,6 +1366,22 @@ class ScreenCapture:
             timestamp_info = f"time: {timestamp}"
             if discord_timestamp:
                 timestamp_info = f"Discord time: {discord_timestamp}, detected at: {timestamp}"
+            
+            # Get screen size to validate coordinates
+            screen_width, screen_height = pyautogui.size()
+            
+            # Validate and correct coordinates to ensure they're within screen bounds
+            if click_x >= screen_width or click_y >= screen_height:
+                logger.warning(f"⚠️ Button coordinates ({click_x}, {click_y}) exceed screen bounds ({screen_width}x{screen_height}) - adjusting")
+                
+                # Normalize to screen dimensions if coordinates are way off
+                # This handles cases where resolution detection was incorrect or OCR returned huge values
+                if click_x > screen_width:
+                    click_x = int((x / screenshot_np.shape[1]) * screen_width)
+                if click_y > screen_height:
+                    click_y = int((y / screenshot_np.shape[0]) * screen_height)
+                
+                logger.warning(f"✓ Adjusted coordinates to ({click_x}, {click_y})")
             
             logger.warning(f"🖱️ EMERGENCY CLICK: Attempting to click at ({click_x}, {click_y}), match score: {score:.2f}, trader: {trader_name}, {timestamp_info}")
             
