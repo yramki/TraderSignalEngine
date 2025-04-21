@@ -159,12 +159,18 @@ class ScreenCapture:
             abs_button_x = x + w // 2
             abs_button_y = y + h // 2
             
-            # Click the button
-            logger.info(f"🖱️ CLICKING: 'Unlock Content' button at ({abs_button_x}, {abs_button_y})")
-            pyautogui.click(abs_button_x, abs_button_y)
+            # Add randomness to click position to mimic human behavior and avoid detection
+            random_offset_x = np.random.randint(-5, 6)  # Random offset between -5 and +5 pixels
+            random_offset_y = np.random.randint(-2, 3)  # Random offset between -2 and +2 pixels
+            click_x = abs_button_x + random_offset_x
+            click_y = abs_button_y + random_offset_y
             
-            # Wait for content to appear
-            time.sleep(1.0)
+            # Click the button - force a click even if we're not sure about the trader
+            logger.info(f"🖱️ CLICKING: 'Unlock Content' button at ({click_x}, {click_y})")
+            pyautogui.click(click_x, click_y)
+            
+            # Wait for content to appear - add longer delay to ensure content loads
+            time.sleep(1.5)
             
             # Take a new screenshot after clicking to process the revealed content
             screenshot = pyautogui.screenshot()
@@ -441,7 +447,9 @@ class ScreenCapture:
             # Lighter blue variation
             (np.array([90, 100, 100]), np.array([150, 255, 255])),
             # Another variation
-            (np.array([100, 80, 100]), np.array([150, 255, 255]))
+            (np.array([100, 80, 100]), np.array([150, 255, 255])),
+            # Wider range to catch more button variations
+            (np.array([80, 60, 100]), np.array([160, 255, 255]))
         ]
         
         all_contours = []
@@ -459,9 +467,18 @@ class ScreenCapture:
         pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
         full_text = pytesseract.image_to_string(pil_image)
         
-        # If "Unlock Content" is found in the text, log it to help with debugging
-        if self.unlock_button_text.lower() in full_text.lower():
-            logger.info(f"Text 'Unlock Content' detected in image! Looking for button contours...")
+        # Expanded text variations to catch more potential buttons
+        button_variations = [
+            "Unlock Content", "UnlockContent", "Unlock", "UNLOCK CONTENT", 
+            "unlock content", "Unlock content", "Press to unlock", "Click to unlock"
+        ]
+        
+        button_text_found = False
+        for var in button_variations:
+            if var.lower() in full_text.lower():
+                logger.info(f"Text '{var}' detected in image! Looking for button contours...")
+                button_text_found = True
+                break
             
         # Process all blue contours to find button-like shapes
         # Filter contours by size and shape (looking for button-like rectangles)
@@ -473,7 +490,7 @@ class ScreenCapture:
             
             # Check if it looks like a button (rectangular with reasonable aspect ratio)
             # Allow a wider range of aspect ratios and sizes to match Discord's UI
-            if 3.0 > aspect_ratio > 1.2 and w >= 80 and h >= 20:
+            if 5.0 > aspect_ratio > 1.0 and w >= 60 and h >= 15:
                 # Extract the button region
                 button_roi = gray[y:y+h, x:x+w]
                 
@@ -483,29 +500,43 @@ class ScreenCapture:
                 logger.debug(f"Potential button at ({x}, {y}) detected, size: {w}x{h}, text: '{button_text}'")
                 
                 # Compare with multiple variations of "Unlock Content"
-                button_variations = ["Unlock Content", "UnlockContent", "Unlock", "unlock content"]
                 matches_text = any(var.lower() in button_text.lower() for var in button_variations)
                 
-                if matches_text:
+                # If it matches our text patterns or if it's a reasonably-sized blue button when we've detected text
+                if matches_text or (button_text_found and 100 < w < 200 and 25 < h < 50):
                     # Add to potential buttons list with confidence score
                     score = 1.0  # Base confidence
+                    
+                    # Boost score for exact matches
                     if "Unlock Content" in button_text:
                         score += 0.5  # Exact match bonus
+                    elif "Unlock" in button_text:
+                        score += 0.3  # Partial match bonus
+                        
+                    # Boost score for ideal button dimensions
+                    if 120 < w < 180 and 30 < h < 45:
+                        score += 0.2  # Ideal dimensions bonus
                     
                     potential_buttons.append((x, y, w, h, score))
                     
         # Sort potential buttons by confidence score
         potential_buttons.sort(key=lambda b: b[4], reverse=True)
         
+        # Even if we don't have target traders, process the first potential button we found
+        if potential_buttons and not self.target_traders:
+            x, y, w, h, _ = potential_buttons[0]
+            logger.info(f"✅ Unlock Content button detected with high confidence (no trader filtering)")
+            return (x, y, w, h)
+        
         # Process potential buttons
         for x, y, w, h, _ in potential_buttons:
             # Try to determine which trader this button belongs to
             # Extract a larger region above the button to find the trader name
             # Look further up to catch the trader name in Discord messages
-            message_y = max(0, y - 150)  # Look 150 pixels above the button
+            message_y = max(0, y - 200)  # Look 200 pixels above the button
             message_height = y - message_y
-            message_x = max(0, x - 100)  # Extend more to the left
-            message_width = w + 200  # Extend more to the right
+            message_x = max(0, x - 150)  # Extend more to the left
+            message_width = w + 300  # Extend more to the right
             
             logger.debug(f"Checking for trader name in region: {message_x}, {message_y}, {message_width}x{message_height}")
             
@@ -524,28 +555,32 @@ class ScreenCapture:
                 
                 if trader_in_message:
                     logger.info(f"✅ Found unlock button from target trader: {trader_in_message}")
-                    logger.info(f"✅ CLICKING: 'Unlock Content' button at ({x}, {y})")
+                    logger.info(f"🔓 UNLOCK: 'Unlock Content' button for trader {trader_in_message}")
+                    return (x, y, w, h)
+                elif not self.target_traders:
+                    # If no trader filtering is active, unlock anyway
+                    logger.info(f"✅ Unlock Content button detected (no trader filtering)")
                     return (x, y, w, h)
                 else:
-                    # If we're filtering for specific traders and this isn't one of them, skip
-                    if self.target_traders:
-                        logger.info(f"⏭️ Ignoring unlock button from non-target trader. Text: {message_text[:50]}...")
-                        continue
-                    else:
-                        # If no trader filtering is active, unlock anyway
-                        logger.info(f"✅ Unlock Content button detected (no trader filtering)")
+                    # If this isn't one of our target traders but it's the first button we found
+                    if potential_buttons[0] == (x, y, w, h):
+                        logger.info(f"⚠️ Could not verify trader for the button, but clicking anyway as best candidate")
                         return (x, y, w, h)
+                    else:
+                        # Skip buttons that don't match our target traders
+                        logger.info(f"⏭️ Ignoring unlock button from non-target trader.")
+                        continue
             else:
-                # Couldn't determine trader, but process anyway
+                # Couldn't determine trader, but process the button anyway
                 logger.info(f"⚠️ Couldn't identify trader for this message, clicking unlock anyway")
                 return (x, y, w, h)
         
         # If we found the "Unlock Content" text but no buttons matched, try a last-ditch effort
-        if self.unlock_button_text.lower() in full_text.lower() and not potential_buttons:
+        if button_text_found and not potential_buttons:
             logger.warning("Found 'Unlock Content' text but couldn't identify button contours. Looking for blue regions...")
             
             # Try to find ANY blue regions that might be buttons
-            blue_mask = cv2.inRange(hsv, np.array([90, 60, 100]), np.array([150, 255, 255]))
+            blue_mask = cv2.inRange(hsv, np.array([80, 40, 100]), np.array([170, 255, 255]))
             contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
             for contour in contours:
