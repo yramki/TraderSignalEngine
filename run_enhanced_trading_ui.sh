@@ -45,7 +45,7 @@ source venv/bin/activate
 # Check if requirements are installed
 if [ ! -f "venv/requirements_installed" ]; then
     print_status "Installing requirements..."
-    pip install -r requirements.txt
+    pip install -r requirements_fixed.txt
     if [ $? -ne 0 ]; then
         print_error "Failed to install requirements."
         exit 1
