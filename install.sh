@@ -22,6 +22,16 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Function to print help information
+print_help() {
+    echo -e "${YELLOW}[HELP]${NC} $1"
+}
+
+# Function to print important notices
+print_important() {
+    echo -e "${YELLOW}[IMPORTANT]${NC} $1"
+}
+
 # Create a proper requirements.txt file
 create_requirements_file() {
     print_status "Creating requirements file..."
@@ -100,20 +110,75 @@ create_directories() {
     mkdir -p venv
 }
 
+# Check for macOS Homebrew Python
+check_macos_homebrew() {
+    # Check if we're on macOS
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        print_status "Detected macOS operating system"
+        
+        # Check if Python was installed via Homebrew
+        if command -v brew &> /dev/null && brew list | grep -q python; then
+            print_status "Detected Homebrew-installed Python"
+            return 0
+        fi
+    fi
+    
+    return 1
+}
+
+# Check for tkinter
+check_tkinter() {
+    print_status "Checking for tkinter..."
+    
+    if python3 -c "import tkinter" 2>/dev/null; then
+        print_status "Tkinter is installed"
+        return 0
+    else
+        print_warning "Tkinter is not installed. GUI applications will not work."
+        
+        if check_macos_homebrew; then
+            print_help "To install tkinter on macOS with Homebrew, run: brew install python-tk"
+        elif [ -f "/etc/debian_version" ]; then
+            print_help "To install tkinter on Debian/Ubuntu, run: sudo apt-get install python3-tk"
+        elif [ -f "/etc/redhat-release" ]; then
+            print_help "To install tkinter on RHEL/CentOS/Fedora, run: sudo dnf install python3-tkinter"
+        else
+            print_help "Please install tkinter for your system to use the GUI application"
+        fi
+        
+        return 1
+    fi
+}
+
 # Install required modules
 install_modules() {
     print_status "Installing Python modules..."
     
-    # Check if we're in an externally managed environment
-    if python3 -m pip install --dry-run -r requirements.txt 2>&1 | grep -q "externally-managed-environment"; then
-        print_warning "Detected externally managed environment."
+    # Variable to track if we're using a virtual environment
+    USE_VENV=0
+    
+    # Check for macOS with Homebrew Python (externally managed)
+    if check_macos_homebrew; then
+        print_important "Detected macOS with Homebrew Python, which is usually an externally managed environment."
+        print_status "This installation will use a virtual environment to avoid conflicts."
+        USE_VENV=1
+    else
+        # For other systems, check if we're in an externally managed environment
+        if python3 -m pip install --dry-run -r requirements.txt 2>&1 | grep -q "externally-managed-environment"; then
+            print_warning "Detected externally managed environment."
+            print_status "This installation will use a virtual environment to avoid conflicts."
+            USE_VENV=1
+        fi
+    fi
+    
+    if [ "$USE_VENV" -eq 1 ]; then
         print_status "Creating a virtual environment to install dependencies."
         
         # Create a virtual environment
         python3 -m venv venv
         if [ $? -ne 0 ]; then
             print_error "Failed to create virtual environment."
-            print_status "You may need to install the venv module with: python3 -m pip install virtualenv"
+            print_help "You may need to install the venv module with: python3 -m pip install --user virtualenv"
             exit 1
         fi
         
@@ -128,11 +193,22 @@ install_modules() {
         if [ "$PYTHON_MAJOR" -ge 3 ] && [ "$PYTHON_MINOR" -ge 13 ]; then
             print_status "Detected Python 3.13+, installing setuptools first..."
             pip install --upgrade pip setuptools wheel
+            
+            if [ $? -ne 0 ]; then
+                print_error "Failed to install setuptools. This is critical for Python 3.13."
+                print_help "Try manually running: pip install --upgrade pip setuptools wheel"
+                print_help "If the issue persists, check PYTHON_313_NOTE.md for more solutions."
+                exit 1
+            fi
+        else
+            # Still upgrade pip for older Python versions
+            pip install --upgrade pip
         fi
         
         # Install in the virtual environment
         print_status "Installing required packages..."
         pip install -r requirements.txt
+        
         if [ $? -ne 0 ]; then
             print_warning "First attempt failed. Trying to install packages one by one..."
             
@@ -150,7 +226,17 @@ install_modules() {
             done < requirements.txt
         fi
         
-        # Create a script to activate the environment
+        # Check if tk module is available in the virtual environment
+        if ! python -c "import tkinter" 2>/dev/null; then
+            print_warning "Tkinter not available in virtual environment."
+            
+            if check_macos_homebrew; then
+                print_help "On macOS, install tkinter with: brew install python-tk"
+                print_help "After installation, you may need to recreate your virtual environment."
+            fi
+        fi
+        
+        # Create scripts to run from the virtual environment
         cat > run_from_venv.sh << 'EOF'
 #!/bin/bash
 source venv/bin/activate
@@ -158,13 +244,24 @@ python3 "$@"
 EOF
         chmod +x run_from_venv.sh
         
+        cat > run_gui_from_venv.sh << 'EOF'
+#!/bin/bash
+source venv/bin/activate
+./run_enhanced_trading_ui.sh
+EOF
+        chmod +x run_gui_from_venv.sh
+        
         print_status "Modules installed successfully in virtual environment"
-        print_status "To run the application, use: ./run_from_venv.sh test_headless.py"
+        print_important "To run the application from the virtual environment, use:"
+        print_help "  - For demo: ./run_from_venv.sh demo_trading_parameters.py"
+        print_help "  - For headless: ./run_from_venv.sh test_headless.py"
+        print_help "  - For GUI: ./run_gui_from_venv.sh"
         
         # Deactivate the virtual environment
         deactivate
     else
-        # Try standard installation
+        # Standard installation (non-virtual environment)
+        print_status "Performing standard pip installation..."
         python3 -m pip install -r requirements.txt
         
         if [ $? -ne 0 ]; then
@@ -200,7 +297,26 @@ check_python() {
         exit 1
     fi
     
-    python3 --version
+    # Get Python version
+    PYTHON_VERSION=$(python3 --version)
+    print_status "Found $PYTHON_VERSION"
+    
+    # Extract version numbers
+    PYTHON_VERSION_NUM=$(python3 --version | sed -n 's/Python \([0-9]*\.[0-9]*\.[0-9]*\)/\1/p')
+    PYTHON_MAJOR=$(echo $PYTHON_VERSION_NUM | cut -d'.' -f1)
+    PYTHON_MINOR=$(echo $PYTHON_VERSION_NUM | cut -d'.' -f2)
+    
+    # Check Python version
+    if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 6 ]); then
+        print_error "Python 3.6 or higher is required. Your version is $PYTHON_VERSION_NUM."
+        exit 1
+    fi
+    
+    # Special note for Python 3.13+
+    if [ "$PYTHON_MAJOR" -ge 3 ] && [ "$PYTHON_MINOR" -ge 13 ]; then
+        print_important "You're using Python 3.13 or higher, which may have issues with setuptools."
+        print_help "If you encounter installation problems, please refer to PYTHON_313_NOTE.md for guidance."
+    fi
 }
 
 # Set permissions
@@ -212,9 +328,76 @@ set_permissions() {
     chmod +x src/run_enhanced_trading_ui.py
 }
 
+# Create a special note for macOS users
+create_macos_note() {
+    if check_macos_homebrew; then
+        print_status "Creating macOS specific instructions..."
+        # The file MACOS_NOTE.md has been created separately
+    fi
+}
+
+# Show final instructions
+show_instructions() {
+    # Different instructions based on the installation method
+    if [ "$USE_VENV" -eq 1 ]; then
+        # Virtual environment instructions
+        print_status "==================================================================="
+        print_status "INSTALLATION COMPLETED SUCCESSFULLY IN VIRTUAL ENVIRONMENT"
+        print_status "==================================================================="
+        print_status ""
+        print_important "To run the application:"
+        print_status ""
+        print_help "1. Non-interactive demo (shows different trading configurations):"
+        print_help "   ./run_from_venv.sh demo_trading_parameters.py"
+        print_status ""
+        print_help "2. Interactive headless version (command-line interface):"
+        print_help "   ./run_from_venv.sh test_headless.py"
+        print_status ""
+        print_help "3. Full GUI application:"
+        print_help "   ./run_gui_from_venv.sh"
+        print_status ""
+        
+        if check_macos_homebrew; then
+            print_important "You're using macOS with Homebrew. For more information, see MACOS_NOTE.md"
+        fi
+        
+        if [ "$PYTHON_MAJOR" -ge 3 ] && [ "$PYTHON_MINOR" -ge 13 ]; then
+            print_important "You're using Python 3.13+. For special information, see PYTHON_313_NOTE.md"
+        fi
+        
+        print_status "==================================================================="
+    else
+        # Standard installation instructions
+        print_status "==================================================================="
+        print_status "INSTALLATION COMPLETED SUCCESSFULLY"
+        print_status "==================================================================="
+        print_status ""
+        print_important "To run the application:"
+        print_status ""
+        print_help "1. Non-interactive demo (shows different trading configurations):"
+        print_help "   python3 demo_trading_parameters.py"
+        print_status ""
+        print_help "2. Interactive headless version (command-line interface):"
+        print_help "   python3 test_headless.py"
+        print_status ""
+        print_help "3. Full GUI application:"
+        print_help "   ./run_enhanced_trading_ui.sh"
+        print_status ""
+        
+        if [ "$PYTHON_MAJOR" -ge 3 ] && [ "$PYTHON_MINOR" -ge 13 ]; then
+            print_important "You're using Python 3.13+. For special information, see PYTHON_313_NOTE.md"
+        fi
+        
+        print_status "==================================================================="
+    fi
+}
+
 # Main installation function
 install() {
-    print_status "Starting installation of Discord Trading Signal Scraper..."
+    print_status "==================================================================="
+    print_status "DISCORD TRADING SIGNAL SCRAPER - INSTALLATION"
+    print_status "==================================================================="
+    print_status ""
     
     # Check if Python is installed
     check_python
@@ -231,19 +414,20 @@ install() {
     # Create configuration file
     create_config_file
     
+    # Check for tkinter
+    check_tkinter
+    
     # Install required modules
     install_modules
     
     # Set permissions
     set_permissions
     
-    print_status "Installation completed successfully!"
-    print_status ""
-    print_status "To run the headless test of trading parameters:"
-    print_status "python3 test_headless.py"
-    print_status ""
-    print_status "To run the full application locally with GUI (outside Replit):"
-    print_status "./run_enhanced_trading_ui.sh"
+    # Create a special note for macOS users
+    create_macos_note
+    
+    # Show final instructions
+    show_instructions
 }
 
 # Run the installation
