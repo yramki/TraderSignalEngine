@@ -148,9 +148,97 @@ class ScreenCapture:
         
         logger.info(f"✅ VERIFIED: Discord with '{self.target_server}' server and '{self.channel_name}' channel is visible")
         
+        # Check for unlock text directly in the full screenshot
+        pil_image = Image.fromarray(cv2.cvtColor(screenshot_cv, cv2.COLOR_BGR2RGB))
+        full_text = pytesseract.image_to_string(pil_image)
+        
+        # Look for unlock phrases
+        unlock_phrases = ["Unlock Content", "Press the button to unlock", "Click to unlock"]
+        unlock_text_found = False
+        found_phrase = None
+        for phrase in unlock_phrases:
+            if phrase.lower() in full_text.lower():
+                unlock_text_found = True
+                found_phrase = phrase
+                logger.info(f"🔍 DIRECT TEXT DETECTION: Found '{phrase}' in screen")
+                break
+                
+        # If we found unlock text, try an immediate direct blue button search and click
+        if unlock_text_found:
+            logger.info(f"🔍 FOUND UNLOCK TEXT: '{found_phrase}' - Performing direct button search")
+            
+            # Convert to HSV for color detection
+            hsv = cv2.cvtColor(screenshot_cv, cv2.COLOR_BGR2HSV)
+            
+            # Apply a very permissive blue mask to catch Discord buttons
+            blue_mask = cv2.inRange(hsv, np.array([80, 40, 100]), np.array([170, 255, 255]))
+            contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Sort by area (largest first) and look for button-like rectangles
+            sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
+            
+            # Look through the first several contours (Discord's blue button should be among the larger elements)
+            direct_click_candidates = []
+            for i, contour in enumerate(sorted_contours):
+                if i >= 20:  # Only check the 20 largest blue areas
+                    break
+                    
+                x, y, w, h = cv2.boundingRect(contour)
+                # Look for button-like dimensions - typical Discord buttons are ~140x35
+                if 70 < w < 250 and 20 < h < 60:
+                    direct_click_candidates.append((x, y, w, h))
+                    logger.info(f"📋 Direct search: Found potential button at ({x}, {y}), size: {w}x{h}")
+                    
+            # If we found candidates, click the most likely one (typical Discord button size)
+            best_candidate = None
+            best_score = 0
+            
+            for x, y, w, h in direct_click_candidates:
+                # Score based on how close dimensions are to ideal Discord button size (approx 140x35)
+                w_score = 1.0 - min(abs(w - 140) / 100.0, 1.0)  # Higher score = closer to 140px width
+                h_score = 1.0 - min(abs(h - 35) / 30.0, 1.0)    # Higher score = closer to 35px height
+                score = w_score * 0.6 + h_score * 0.4  # Width more important than height
+                
+                if score > best_score:
+                    best_score = score
+                    best_candidate = (x, y, w, h)
+                    
+            if best_candidate:
+                x, y, w, h = best_candidate
+                click_x = x + w // 2
+                click_y = y + h // 2
+                
+                # Add slight randomness to click position
+                random_offset_x = np.random.randint(-5, 6)
+                random_offset_y = np.random.randint(-2, 3)
+                click_x += random_offset_x
+                click_y += random_offset_y
+                
+                logger.info(f"🖱️ DIRECT CLICK: Clicking button at ({click_x}, {click_y}), score: {best_score:.2f}")
+                
+                try:
+                    # Move to position first, then click
+                    pyautogui.moveTo(click_x, click_y, duration=0.1)
+                    time.sleep(0.1)
+                    pyautogui.click()
+                    logger.info(f"✅ DIRECT CLICK SUCCESSFUL: Button clicked at ({click_x}, {click_y})")
+                    
+                    # Wait for content to appear - add longer delay to ensure content loads
+                    time.sleep(1.5)
+                    
+                    # Take a new screenshot after clicking to process the revealed content
+                    screenshot = pyautogui.screenshot()
+                    screenshot_np = np.array(screenshot)
+                    screenshot_cv = cv2.cvtColor(screenshot_np, cv2.COLOR_RGB2BGR)
+                    
+                    # Regular processing will continue after this
+                except Exception as e:
+                    logger.error(f"❌ DIRECT CLICK FAILED: Error clicking button: {e}", exc_info=True)
+        
+        # Continue with the original button detection as a backup
         # First, scan the entire image for "Unlock Content" buttons directly
         # This ensures we find all buttons even if we can't identify trader messages
-        logger.debug("Scanning full screen for 'Unlock Content' buttons...")
+        logger.debug("Scanning full screen for 'Unlock Content' buttons using standard detection...")
         unlock_button_region = self._find_unlock_button(screenshot_cv)
         
         if unlock_button_region is not None:
@@ -493,6 +581,57 @@ class ScreenCapture:
                 
         if not button_text_found:
             logger.info("⚠️ No button text variations found in this frame")
+            return None
+            
+        # DIRECT APPROACH: If we found the button text, let's do a direct blue color detection
+        # and click the first reasonable button we find
+        if button_text_found:
+            logger.info("🔍 DIRECT APPROACH: Using simpler button detection based on color and size")
+            
+            # Apply a very permissive blue mask to catch Discord buttons
+            wide_blue_mask = cv2.inRange(hsv, np.array([80, 40, 100]), np.array([170, 255, 255]))
+            contours, _ = cv2.findContours(wide_blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Sort contours by size (area)
+            sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
+            
+            # Check a reasonable number of the largest contours
+            checked_count = 0
+            for contour in sorted_contours:
+                checked_count += 1
+                if checked_count > 20:  # Only check the 20 largest contours
+                    break
+                    
+                x, y, w, h = cv2.boundingRect(contour)
+                
+                # Look for button-like dimensions - Discord "Unlock Content" buttons are typically around 140x35 pixels
+                if 80 < w < 200 and 25 < h < 50:
+                    logger.info(f"🔍 DIRECT MATCH: Found blue button-like element at ({x}, {y}), size: {w}x{h}")
+                    
+                    # Check if we need to link this to a trader
+                    if self.target_traders:
+                        # Look above the button for trader names
+                        look_up_height = 200
+                        message_y = max(0, y - look_up_height)
+                        message_roi = gray[message_y:y, max(0, x-100):min(gray.shape[1], x+w+100)]
+                        message_text = pytesseract.image_to_string(message_roi)
+                        
+                        # Check if any target trader is in this region
+                        trader_found = False
+                        for trader in self.target_traders:
+                            if self._match_trader(trader, message_text):
+                                logger.info(f"✅ Found button linked to target trader: {trader}")
+                                trader_found = True
+                                return (x, y, w, h)
+                                
+                        # If we didn't find a trader but it's our first good button, remember it
+                        if not trader_found and checked_count <= 3:  # One of the first 3 buttons
+                            logger.info(f"⚠️ No trader found for this button, but using it as best candidate")
+                            return (x, y, w, h)
+                    else:
+                        # No trader filtering, use the first good button
+                        logger.info(f"✅ Found button (no trader filtering active)")
+                        return (x, y, w, h)
             
         # Process all blue contours to find button-like shapes
         # Filter contours by size and shape (looking for button-like rectangles)
