@@ -229,14 +229,24 @@ class ScreenCapture:
                 click_x += random_offset_x
                 click_y += random_offset_y
                 
-                logger.info(f"🖱️ DIRECT CLICK: Clicking button at ({click_x}, {click_y}), score: {best_score:.2f}")
+                # First try to identify the trader associated with this button
+                trader_name = "Unknown"
+                for trader in self.target_traders:
+                    if trader in full_text:
+                        trader_name = trader
+                        break
+                
+                # Also extract timestamp if available
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                
+                logger.info(f"🖱️ DIRECT CLICK: Clicking button at ({click_x}, {click_y}), score: {best_score:.2f}, trader: {trader_name}, time: {timestamp}")
                 
                 try:
                     # Move to position first, then click
                     pyautogui.moveTo(click_x, click_y, duration=0.1)
                     time.sleep(0.1)
                     pyautogui.click()
-                    logger.info(f"✅ DIRECT CLICK SUCCESSFUL: Button clicked at ({click_x}, {click_y})")
+                    logger.info(f"✅ DIRECT CLICK SUCCESSFUL: Button clicked at ({click_x}, {click_y}) for trader {trader_name}")
                     
                     # Wait for content to appear - add longer delay to ensure content loads
                     time.sleep(1.5)
@@ -268,14 +278,27 @@ class ScreenCapture:
             click_x = abs_button_x + random_offset_x
             click_y = abs_button_y + random_offset_y
             
+            # Try to identify the trader associated with this button
+            pil_image = Image.fromarray(cv2.cvtColor(screenshot_cv, cv2.COLOR_BGR2RGB))
+            full_text = pytesseract.image_to_string(pil_image)
+            
+            trader_name = "Unknown"
+            for trader in self.target_traders:
+                if trader in full_text or self._match_trader(trader, full_text):
+                    trader_name = trader
+                    break
+            
+            # Get timestamp for tracking
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                
             # Click the button - force a click even if we're not sure about the trader
-            logger.info(f"🖱️ ATTEMPTING TO CLICK: 'Unlock Content' button at ({click_x}, {click_y})")
+            logger.info(f"🖱️ ATTEMPTING TO CLICK: 'Unlock Content' button at ({click_x}, {click_y}), trader: {trader_name}, time: {timestamp}")
             try:
                 # Move to position first, then click
                 pyautogui.moveTo(click_x, click_y, duration=0.1)
                 time.sleep(0.1)
                 pyautogui.click()
-                logger.info(f"✅ CLICK SUCCESSFUL: 'Unlock Content' button clicked at ({click_x}, {click_y})")
+                logger.info(f"✅ CLICK SUCCESSFUL: 'Unlock Content' button clicked at ({click_x}, {click_y}) for trader {trader_name}")
             except Exception as e:
                 logger.error(f"❌ CLICK FAILED: Error clicking button: {e}", exc_info=True)
             
@@ -1039,14 +1062,30 @@ class ScreenCapture:
             click_x = x + w // 2 + np.random.randint(-3, 4)
             click_y = y + h // 2 + np.random.randint(-2, 3)
             
-            logger.warning(f"🖱️ EMERGENCY CLICK: Attempting to click at ({click_x}, {click_y}), match score: {score:.2f}")
+            # Get text from current screen to identify trader if possible
+            screenshot_for_ocr = pyautogui.screenshot()
+            screenshot_np_ocr = np.array(screenshot_for_ocr)
+            pil_image = Image.fromarray(screenshot_np_ocr)
+            full_text = pytesseract.image_to_string(pil_image)
+            
+            # Try to identify the trader associated with this button
+            trader_name = "Unknown"
+            for trader in self.target_traders:
+                if trader in full_text or self._match_trader(trader, full_text):
+                    trader_name = trader
+                    break
+                    
+            # Get timestamp for tracking
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            
+            logger.warning(f"🖱️ EMERGENCY CLICK: Attempting to click at ({click_x}, {click_y}), match score: {score:.2f}, trader: {trader_name}, time: {timestamp}")
             
             try:
                 # Move mouse and click
                 pyautogui.moveTo(click_x, click_y, duration=0.2)
                 time.sleep(0.1)
                 pyautogui.click()
-                logger.warning(f"✅ EMERGENCY CLICK SUCCESSFUL at ({click_x}, {click_y})")
+                logger.warning(f"✅ EMERGENCY CLICK SUCCESSFUL at ({click_x}, {click_y}) for trader {trader_name}")
                 click_count += 1
                 
                 # Wait between clicks
