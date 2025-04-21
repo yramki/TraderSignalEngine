@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Headless test for Enhanced Trading Parameters
-This script demonstrates trading parameters functionality without requiring a GUI
+Non-interactive demo of Enhanced Trading Parameters
+This script demonstrates trading parameters without requiring user input
 """
 
 import os
 import sys
 import json
 import time
+import random
 
 class Config:
     """Simple configuration class for testing"""
@@ -199,7 +200,6 @@ def simulate_trading(params):
     time.sleep(1)
     
     # Random outcome (simplified)
-    import random
     outcome = random.choice(["profit", "loss", "ongoing"])
     
     if outcome == "profit":
@@ -225,130 +225,76 @@ def simulate_trading(params):
     print(f"\nCapital: ${new_capital:.2f}")
     print("=========================\n")
 
-def modify_parameters(params):
-    """
-    Allow the user to modify parameters
-    
-    Args:
-        params: TradingParams object to modify
-    """
-    print("\n=== Modify Trading Parameters ===")
-    print("Enter new values or press Enter to keep current values:")
-    
-    try:
-        # Amount per trade
-        input_value = input(f"Amount per Trade (current: ${params.amount_per_trade}): ")
-        if input_value.strip():
-            params.amount_per_trade = float(input_value)
-        
-        # Max position size
-        input_value = input(f"Maximum Position Size (current: ${params.max_position_size}): ")
-        if input_value.strip():
-            params.max_position_size = float(input_value)
-        
-        # Stop loss percentage
-        input_value = input(f"Stop Loss Percentage (current: {params.stop_loss_percentage}%): ")
-        if input_value.strip():
-            params.stop_loss_percentage = float(input_value)
-        
-        # Enable stop loss
-        input_value = input(f"Enable Stop Loss (current: {'Yes' if params.enable_stop_loss else 'No'}) [y/n]: ")
-        if input_value.strip() and input_value.lower() in ['y', 'n']:
-            params.enable_stop_loss = input_value.lower() == 'y'
-        
-        # Take profit percentage
-        input_value = input(f"Take Profit Percentage (current: {params.take_profit_percentage}%): ")
-        if input_value.strip():
-            params.take_profit_percentage = float(input_value)
-        
-        # Enable take profit
-        input_value = input(f"Enable Take Profit (current: {'Yes' if params.enable_take_profit else 'No'}) [y/n]: ")
-        if input_value.strip() and input_value.lower() in ['y', 'n']:
-            params.enable_take_profit = input_value.lower() == 'y'
-        
-        # Default leverage
-        input_value = input(f"Default Leverage (current: {params.default_leverage}x): ")
-        if input_value.strip():
-            params.default_leverage = int(input_value)
-        
-        # Use signal leverage
-        input_value = input(f"Use Signal Leverage (current: {'Yes' if params.use_signal_leverage else 'No'}) [y/n]: ")
-        if input_value.strip() and input_value.lower() in ['y', 'n']:
-            params.use_signal_leverage = input_value.lower() == 'y'
-        
-        # Max leverage
-        input_value = input(f"Maximum Leverage (current: {params.max_leverage}x): ")
-        if input_value.strip():
-            params.max_leverage = int(input_value)
-        
-        # Min market cap
-        input_value = input(f"Minimum Market Cap (current: ${params.min_market_cap:,}): ")
-        if input_value.strip():
-            params.min_market_cap = int(input_value)
-        
-        # Enable market cap filter
-        input_value = input(f"Enable Market Cap Filter (current: {'Yes' if params.enable_market_cap_filter else 'No'}) [y/n]: ")
-        if input_value.strip() and input_value.lower() in ['y', 'n']:
-            params.enable_market_cap_filter = input_value.lower() == 'y'
-        
-        # Auto trading
-        input_value = input(f"Enable Auto Trading (current: {'Yes' if params.enable_auto_trading else 'No'}) [y/n]: ")
-        if input_value.strip() and input_value.lower() in ['y', 'n']:
-            params.enable_auto_trading = input_value.lower() == 'y'
-        
-        # Auto close trades
-        input_value = input(f"Auto Close Trades (current: {'Yes' if params.auto_close_trades else 'No'}) [y/n]: ")
-        if input_value.strip() and input_value.lower() in ['y', 'n']:
-            params.auto_close_trades = input_value.lower() == 'y'
-        
-        # Max simultaneous trades
-        input_value = input(f"Maximum Simultaneous Trades (current: {params.max_simultaneous_trades}): ")
-        if input_value.strip():
-            params.max_simultaneous_trades = int(input_value)
-        
-        # Save parameters
-        print("\nSaving parameters...")
-        params.save_params()
-        
-    except ValueError as e:
-        print(f"\nError: {e}")
-        print("Please enter valid values. No changes were saved.")
 
 def main():
-    """Main function"""
-    print("===================================================")
-    print("    DISCORD TRADING SIGNAL SCRAPER - PARAMETERS    ")
-    print("===================================================")
-    print("This is a headless test for the enhanced trading parameters")
+    """Main function - non-interactive demo"""
+    print("=======================================================")
+    print("    DISCORD TRADING SIGNAL SCRAPER - PARAMETERS DEMO   ")
+    print("=======================================================")
+    print("This is a non-interactive demo of the enhanced trading parameters")
     print("It demonstrates how the trading parameters affect trade execution")
     
     # Create configuration and parameters objects
     config = Config()
     params = TradingParams(config)
     
-    while True:
-        print("\nMenu:")
-        print("1. Display Current Parameters")
-        print("2. Modify Parameters")
-        print("3. Simulate Trading")
-        print("4. Save Configuration")
-        print("5. Exit")
-        
-        choice = input("\nEnter your choice (1-5): ")
-        
-        if choice == '1':
-            params.display_params()
-        elif choice == '2':
-            modify_parameters(params)
-        elif choice == '3':
-            simulate_trading(params)
-        elif choice == '4':
-            params.save_params()
-        elif choice == '5':
-            print("\nExiting program. Goodbye!")
-            break
-        else:
-            print("\nInvalid choice. Please try again.")
+    # Display current parameters
+    print("\n--- Step 1: Show Current Parameters ---")
+    params.display_params()
+    time.sleep(1)
+    
+    # Modify parameters for demo
+    print("\n--- Step 2: Modify Parameters ---")
+    print("Modifying parameters to show different configurations...")
+    
+    # Example 1: Conservative trading settings
+    print("\nExample 1: Conservative trading settings")
+    params.amount_per_trade = 50.0
+    params.max_position_size = 200.0
+    params.stop_loss_percentage = 2.0
+    params.take_profit_percentage = 5.0
+    params.default_leverage = 2
+    params.max_leverage = 5
+    params.min_market_cap = 5000000
+    params.display_params()
+    simulate_trading(params)
+    time.sleep(1)
+    
+    # Example 2: Aggressive trading settings
+    print("\nExample 2: Aggressive trading settings")
+    params.amount_per_trade = 200.0
+    params.max_position_size = 1000.0
+    params.stop_loss_percentage = 10.0
+    params.take_profit_percentage = 30.0
+    params.default_leverage = 10
+    params.max_leverage = 20
+    params.min_market_cap = 500000
+    params.display_params()
+    simulate_trading(params)
+    time.sleep(1)
+    
+    # Example 3: Balanced trading settings
+    print("\nExample 3: Balanced trading settings")
+    params.amount_per_trade = 100.0
+    params.max_position_size = 500.0
+    params.stop_loss_percentage = 5.0
+    params.take_profit_percentage = 15.0
+    params.default_leverage = 5
+    params.max_leverage = 10
+    params.min_market_cap = 1000000
+    params.display_params()
+    simulate_trading(params)
+    
+    # Save final configuration
+    print("\n--- Step 3: Save Configuration ---")
+    params.save_params()
+    
+    print("\nDemo completed. In the full application, you can:")
+    print("1. Configure all trading parameters through the GUI")
+    print("2. Save your configuration for future use")
+    print("3. Connect to Discord to monitor for trading signals")
+    print("4. Execute trades automatically on Phemex based on your parameters")
+    print("\nThank you for testing the Discord Trading Signal Scraper!")
 
 if __name__ == "__main__":
     main()
