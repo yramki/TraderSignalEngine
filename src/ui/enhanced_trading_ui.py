@@ -244,6 +244,28 @@ class EnhancedTradingUI:
         for trader in target_traders:
             self.traders_listbox.insert(tk.END, trader)
         
+        # Emergency Discord Controls
+        emergency_frame = ttk.LabelFrame(bottom_frame, text="Discord Emergency Controls", padding=10)
+        emergency_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Create a button that directly clicks on blue buttons that might be "Unlock Content"
+        emergency_click_button = ttk.Button(
+            emergency_frame, 
+            text="🔵 Force Click Unlock Buttons", 
+            command=self._force_click_unlock_buttons,
+            style="Accent.TButton"
+        )
+        emergency_click_button.pack(side=tk.LEFT, padx=5, pady=5, fill=tk.X, expand=True)
+        
+        # Add a warning label
+        emergency_label = ttk.Label(
+            emergency_frame,
+            text="Use this if 'Unlock Content' buttons aren't being clicked automatically",
+            foreground="red",
+            wraplength=280
+        )
+        emergency_label.pack(side=tk.RIGHT, padx=5, pady=5)
+        
         # Bottom frame: Trading controls
         trading_control_frame = ttk.LabelFrame(bottom_frame, text="Manual Trading Controls", padding=10)
         trading_control_frame.pack(fill=tk.X, padx=5, pady=5)
@@ -789,6 +811,34 @@ class EnhancedTradingUI:
                 self.trade_tree.delete(i)
             
             self._log_message("History cleared")
+    
+    def _force_click_unlock_buttons(self):
+        """Force immediate detection and clicking of all 'Unlock Content' buttons on screen"""
+        # Make sure we have a screen capture object
+        if not hasattr(self, 'screen_capture') or self.screen_capture is None:
+            messagebox.showerror("Error", "Screen capture is not initialized")
+            return
+            
+        self._log_message("🚨 EXECUTING EMERGENCY UNLOCK BUTTON DETECTION", color="red")
+        
+        # Create a separate thread to run the emergency click function 
+        # so it doesn't freeze the UI
+        def execute_emergency_click():
+            try:
+                success = self.screen_capture.force_click_unlock_button()
+                if success:
+                    self._log_message("✅ Successfully clicked potential 'Unlock Content' buttons", color="green")
+                else:
+                    self._log_message("⚠️ No suitable buttons found to click", color="orange")
+            except Exception as e:
+                self._log_message(f"❌ Error during emergency button click: {e}", color="red")
+        
+        # Start the thread and return immediately
+        click_thread = threading.Thread(target=execute_emergency_click)
+        click_thread.daemon = True
+        click_thread.start()
+        
+        messagebox.showinfo("Emergency Click", "Looking for and clicking blue buttons that may be 'Unlock Content' buttons. Please wait...")
     
     def _manual_trade(self, direction):
         """Execute a manual trade"""

@@ -1,0 +1,30 @@
+2025-04-21 07:48:50,543 - screen_capture_enhanced - INFO - ✅ Discord 'Wealth Group' server and 'trades' channel detected!
+2025-04-21 07:48:50,543 - screen_capture_enhanced - INFO -    Found indicators: Discord, Wealth Group, trades channel, Unlock Content, Press the button to unlock, WG Bot
+2025-04-21 07:48:50,543 - screen_capture_enhanced - INFO - 👤 Target trader mention detected: @Eliz
+2025-04-21 07:48:50,543 - screen_capture_enhanced - INFO - 👤 Target trader mention detected: @Woods
+2025-04-21 07:48:50,543 - screen_capture_enhanced - INFO - 👤 Target trader mention detected: @Johnny
+2025-04-21 07:48:50,544 - ui.enhanced_trading_ui - INFO - Discord detector (legacy): Discord=True
+2025-04-21 07:48:52,597 - screen_capture_enhanced - INFO - ✅ Discord 'Wealth Group' server and 'trades' channel detected!
+2025-04-21 07:48:52,597 - screen_capture_enhanced - INFO -    Found indicators: Discord, Wealth Group, trades channel, Unlock Content, Press the button to unlock, WG Bot
+2025-04-21 07:48:52,597 - screen_capture_enhanced - INFO - 👤 Target trader mention detected: @Eliz
+2025-04-21 07:48:52,597 - screen_capture_enhanced - INFO - 👤 Target trader mention detected: @Woods
+2025-04-21 07:48:52,597 - screen_capture_enhanced - INFO - 👤 Target trader mention detected: @Johnny
+2025-04-21 07:48:52,598 - ui.enhanced_trading_ui - INFO - Discord detector (legacy): Discord=True
+2025-04-21 07:48:54,659 - screen_capture_enhanced - INFO - ✅ Discord 'Wealth Group' server and 'trades' channel detected!
+2025-04-21 07:48:54,660 - screen_capture_enhanced - INFO -    Found indicators: Discord, Wealth Group, trades channel, Unlock Content, Press the button to unlock, WG Bot
+2025-04-21 07:48:54,660 - screen_capture_enhanced - INFO - 👤 Target trader mention detected: @Eliz
+2025-04-21 07:48:54,660 - screen_capture_enhanced - INFO - 👤 Target trader mention detected: @Woods
+2025-04-21 07:48:54,660 - screen_capture_enhanced - INFO - 👤 Target trader mention detected: @Johnny
+2025-04-21 07:48:54,660 - ui.enhanced_trading_ui - INFO - Discord detector (legacy): Discord=True
+2025-04-21 07:48:58,109 - screen_capture_enhanced - INFO - ✅ Discord 'Wealth Group' server and 'trades' channel detected!
+2025-04-21 07:48:58,109 - screen_capture_enhanced - INFO -    Found indicators: Discord, Wealth Group, trades channel, Unlock Content
+2025-04-21 07:48:58,109 - screen_capture_enhanced - INFO - 👤 Target trader mention detected: @Eliz
+2025-04-21 07:48:58,109 - screen_capture_enhanced - INFO - 👤 Target trader mention detected: @Woods
+2025-04-21 07:48:58,109 - screen_capture_enhanced - INFO - 👤 Target trader mention detected: @Johnny
+2025-04-21 07:48:58,110 - ui.enhanced_trading_ui - INFO - Discord detector (legacy): Discord=True
+2025-04-21 07:49:01,396 - screen_capture_enhanced - INFO - ✅ Discord 'Wealth Group' server and 'trades' channel detected!
+2025-04-21 07:49:01,396 - screen_capture_enhanced - INFO -    Found indicators: Discord, Wealth Group, trades channel, Unlock Content
+2025-04-21 07:49:01,396 - screen_capture_enhanced - INFO - 👤 Target trader mention detected: @Eliz
+2025-04-21 07:49:01,396 - screen_capture_enhanced - INFO - 👤 Target trader mention detected: @Woods
+2025-04-21 07:49:01,396 - screen_capture_enhanced - INFO - 👤 Target trader mention detected: @Johnny
+2025-04-21 07:49:01,396 - ui.enhanced_trading_ui - INFO - Discord detector (legacy): Discord=True

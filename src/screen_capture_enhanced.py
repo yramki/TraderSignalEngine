@@ -14,6 +14,9 @@ import numpy as np
 import pytesseract
 from PIL import Image
 import re
+import time
+import logging
+import pyautogui
 
 logger = logging.getLogger(__name__)
 
@@ -909,3 +912,77 @@ class ScreenCapture:
                 logger.debug(f"Will recognize variations for {trader}: {', '.join(variations)}")
         else:
             logger.info("Trader filtering disabled - will process signals from any trader")
+            
+    def force_click_unlock_button(self):
+        """
+        Emergency function to detect and click "Unlock Content" buttons
+        This bypasses the normal detection process for problematic cases
+        """
+        logger.warning("🚨 EXECUTING EMERGENCY UNLOCK BUTTON CLICK")
+        
+        # Take a screenshot
+        screenshot = pyautogui.screenshot()
+        screenshot_np = np.array(screenshot)
+        
+        # Find blue pixels (Discord button color)
+        blue_channel = screenshot_np[:, :, 2]  # Blue channel in RGB
+        red_channel = screenshot_np[:, :, 0]    # Red channel
+        green_channel = screenshot_np[:, :, 1]  # Green channel
+        
+        # Discord buttons are blue - where blue is high and red/green are lower
+        potential_button_mask = (blue_channel > 120) & (blue_channel > red_channel + 30) & (blue_channel > green_channel + 30)
+        
+        # Look for button-sized clusters of blue pixels
+        # Convert mask to image format OpenCV can process
+        mask_image = potential_button_mask.astype(np.uint8) * 255
+        
+        # Find contours in the mask
+        contours, _ = cv2.findContours(mask_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Discord's "Unlock Content" button dimensions are typically around 140px wide x 35px high
+        button_candidates = []
+        
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            # Filter based on typical Discord button dimensions
+            if 80 < w < 200 and 25 < h < 50:
+                # Calculate distance from ideal Discord button size (approx 140x35)
+                size_match = 1.0 - (abs(w - 140) / 100 + abs(h - 35) / 25) / 2
+                button_candidates.append((x, y, w, h, size_match))
+        
+        # Sort by match score
+        button_candidates.sort(key=lambda x: x[4], reverse=True)
+        
+        # Click on the best candidates
+        click_count = 0
+        MAX_CLICKS = 3  # Limit the number of clicks for safety
+        
+        for x, y, w, h, score in button_candidates:
+            if click_count >= MAX_CLICKS:
+                break
+                
+            # Calculate center with slight randomness
+            click_x = x + w // 2 + np.random.randint(-3, 4)
+            click_y = y + h // 2 + np.random.randint(-2, 3)
+            
+            logger.warning(f"🖱️ EMERGENCY CLICK: Attempting to click at ({click_x}, {click_y}), match score: {score:.2f}")
+            
+            try:
+                # Move mouse and click
+                pyautogui.moveTo(click_x, click_y, duration=0.2)
+                time.sleep(0.1)
+                pyautogui.click()
+                logger.warning(f"✅ EMERGENCY CLICK SUCCESSFUL at ({click_x}, {click_y})")
+                click_count += 1
+                
+                # Wait between clicks
+                time.sleep(1.0)
+            except Exception as e:
+                logger.error(f"❌ EMERGENCY CLICK FAILED: {e}")
+                
+        if click_count > 0:
+            logger.warning(f"✅ CLICKED {click_count} POTENTIAL UNLOCK BUTTONS")
+            return True
+        else:
+            logger.warning("❌ NO SUITABLE BUTTONS FOUND")
+            return False
