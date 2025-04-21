@@ -301,7 +301,9 @@ class ScreenCapture:
         
         logger.info("Enhanced screen capture module initialized")
         if self.target_traders:
-            logger.info(f"Filtering for traders: {', '.join(self.target_traders)}")
+            logger.info(f"✅ Target traders to monitor: {', '.join(self.target_traders)}")
+        else:
+            logger.info("⚠️ No target traders configured - monitoring all traders")
         logger.info(f"Target Discord server: {self.target_server}")
         logger.info(f"Target Discord channel: {self.channel_name}")
     
@@ -590,15 +592,27 @@ class ScreenCapture:
         pil_image = Image.fromarray(cv2.cvtColor(screenshot_cv, cv2.COLOR_BGR2RGB))
         full_text = pytesseract.image_to_string(pil_image)
         
-        # Look for unlock phrases
+        # Look for both unlock phrases and WG Bot mentions
         unlock_phrases = ["Unlock Content", "Press the button to unlock", "Click to unlock"]
+        wg_bot_phrases = ["WG Bot", "Bot"]
+        
         unlock_text_found = False
         found_phrase = None
+        wg_bot_found = False
+        
+        # First check for unlock phrases
         for phrase in unlock_phrases:
             if phrase.lower() in full_text.lower():
                 unlock_text_found = True
                 found_phrase = phrase
-                logger.info(f"🔍 DIRECT TEXT DETECTION: Found '{phrase}' in screen")
+                logger.debug(f"🔍 Found '{phrase}' text in screen")
+                break
+                
+        # Check for WG Bot mentions
+        for phrase in wg_bot_phrases:
+            if phrase in full_text:
+                wg_bot_found = True
+                logger.debug(f"🔍 Found '{phrase}' in screen")
                 break
                 
         # If we found unlock text, try an immediate direct blue button search and click
@@ -677,13 +691,34 @@ class ScreenCapture:
                     if confidence > 0.6 and confidence > highest_confidence:
                         highest_confidence = confidence
                         best_trader = trader
-                        trader_name = f"{trader} [confidence: {confidence:.2f}]"
+                        trader_name = best_trader
                 
                 # If we're filtering by trader but didn't find a match with high confidence, abort the click
                 if self.target_traders and not best_trader and len(self.target_traders) > 0:
                     logger.warning(f"⚠️ No target trader match found with direct text detection - skipping click")
                     logger.debug(f"Target traders: {', '.join(self.target_traders)}")
                     return
+                    
+                # Extract message timestamp for Discord
+                discord_timestamp = self.extract_discord_timestamp(full_text)
+                wg_bot_text = "WG Bot"
+                    
+                # Only log trader detection when we have:
+                # 1. A trader name
+                # 2. An Unlock Content button
+                # 3. Optionally, a WG Bot reference
+                if best_trader:
+                    # This is the core functionality you requested
+                    if wg_bot_found and unlock_text_found:
+                        logger.info(f"👤 Target trader mention detected: {best_trader}")
+                        logger.info(f"📍 Trader Button Coordinates: ({click_x}, {click_y}), size: {w}x{h}")
+                        
+                        # Add timestamp info if available
+                        if discord_timestamp:
+                            logger.info(f"⏰ Message timestamp: {discord_timestamp}")
+                    elif unlock_text_found:
+                        logger.info(f"👤 Target trader mention detected: {best_trader}")
+                        logger.info(f"📍 Trader Button Coordinates: ({click_x}, {click_y}), size: {w}x{h}")
                 
                 # Extract Discord message timestamp using our helper method
                 discord_timestamp = self.extract_discord_timestamp(full_text)
@@ -1236,11 +1271,8 @@ class ScreenCapture:
             
             logger.info(f"   Found indicators: {', '.join(indicators_found)}")
             
-            # Look for specific trader mentions
-            for trader in self.target_traders:
-                base_name = trader.replace('@', '').replace('-', '')
-                if base_name.lower() in text.lower():
-                    logger.info(f"👤 Target trader mention detected: {trader}")
+            # Only log specific trader mentions when there's an "Unlock Content" button
+            # This prevents excessive logging
         else:
             missing = []
             if not discord_visible:
