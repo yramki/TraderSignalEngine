@@ -12,3 +12,11 @@ requests==2.31.0
 
 # UI dependencies
 tk==0.1.0
+configparser
+numpy
+opencv-python
+pillow
+pyautogui
+pycryptodome
+pytesseract
+requests
