@@ -904,6 +904,42 @@ class ScreenCapture:
             
         return all_required_visible
     
+    def _save_screenshot_with_highlight(self, screenshot, region=None, label=None):
+        """
+        Save the current screenshot with optional highlighting of a specific region
+        
+        Args:
+            screenshot: OpenCV image of the screen
+            region: Optional tuple (x, y, w, h) to highlight
+            label: Optional label to add to the filename
+        """
+        try:
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            tag = f"_{label}" if label else ""
+            filename = f"discord_capture_{timestamp}{tag}.png"
+            
+            # Create a copy of the screenshot to draw on
+            annotated = screenshot.copy()
+            
+            # If a region is provided, highlight it
+            if region:
+                x, y, w, h = region
+                cv2.rectangle(annotated, (x, y), (x+w, y+h), (0, 255, 0), 2)  # Green rectangle
+                
+                # Add text label above the region
+                if label:
+                    cv2.putText(annotated, label, (x, max(0, y-10)), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            
+            # Save the image
+            cv2.imwrite(filename, annotated)
+            logger.info(f"📸 Screenshot saved as {filename}")
+            
+            return filename
+        except Exception as e:
+            logger.error(f"Failed to save screenshot: {e}")
+            return None
+    
     def _find_trader_messages(self, screenshot):
         """
         Find regions containing messages from target traders with improved accuracy
@@ -976,7 +1012,19 @@ class ScreenCapture:
                         timestamp = self.extract_discord_timestamp(region_text)
                         timestamp_info = f" (message sent at {timestamp})" if timestamp else ""
                         
-                        logger.info(f"👤 Found message from target trader: {trader}{timestamp_info} [confidence: {confidence:.2f}]")
+                        # Save screenshot with the trader region highlighted
+                        screenshot_file = self._save_screenshot_with_highlight(
+                            screenshot, 
+                            (region_x, region_y, region_w, region_h),
+                            f"trader_{trader.replace('@', '').replace('-', '_')}"
+                        )
+                        
+                        # Log detailed information with exact coordinates
+                        logger.info(f"👤 Target trader mention detected: {trader}{timestamp_info} [confidence: {confidence:.2f}]")
+                        logger.info(f"📍 Trader location: x={region_x}, y={region_y}, width={region_w}, height={region_h}")
+                        if screenshot_file:
+                            logger.info(f"📸 Saved trader detection screenshot: {screenshot_file}")
+                            
                         traders_found.append(trader)
                         already_matched_traders.add(trader)
                         

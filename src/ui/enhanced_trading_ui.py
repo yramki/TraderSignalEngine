@@ -899,6 +899,11 @@ class EnhancedTradingUI:
                             # For proper UI status, we need to parse that state directly
                             discord_detected = result
                             
+                            # Force server_detected and channel_detected to True when we have successful detection
+                            if discord_detected:
+                                server_detected = True
+                                channel_detected = True
+                            
                             # Let's check the MOST RECENT log messages for clues
                             if hasattr(self, 'log_text') and self.log_text:
                                 log_content = self.log_text.get("1.0", tk.END)
@@ -913,6 +918,11 @@ class EnhancedTradingUI:
                                     server_detected = True
                                     channel_detected = True
                                     self._log_message(f"UI Status: Discord, Server and Channel detected ✓", level="INFO")
+                                # Alternative check for screen_capture_enhanced log message format
+                                elif "Discord 'Wealth Group' server and 'trades' channel detected" in recent_log:
+                                    server_detected = True
+                                    channel_detected = True
+                                    self._log_message(f"UI Status: Discord, Server and Channel detected (alt) ✓", level="INFO")
                                 # Second - check if channel is inferred from buttons or traders
                                 elif "Target channel 'trades' inferred from" in recent_log:
                                     server_detected = True
