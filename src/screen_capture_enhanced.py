@@ -14,9 +14,34 @@ import numpy as np
 import pytesseract
 from PIL import Image
 import re
-import time
-import logging
-import pyautogui
+import atexit
+import sys
+import traceback
+
+# Configure PyAutoGUI safety settings
+pyautogui.PAUSE = 0.1  # Add small pause between PyAutoGUI commands for stability
+pyautogui.FAILSAFE = True  # Enable fail-safe for mouse movement
+
+# Create a global emergency cleanup function to ensure mouse is always released
+def _emergency_cleanup():
+    """Global emergency cleanup to release mouse if program terminates unexpectedly"""
+    try:
+        # Release any held mouse buttons
+        pyautogui.mouseUp()
+        # Release common keyboard modifiers 
+        pyautogui.keyUp('shift')
+        pyautogui.keyUp('ctrl')
+        pyautogui.keyUp('alt')
+        # Move cursor to a safe location
+        screen_width, screen_height = pyautogui.size()
+        pyautogui.moveTo(screen_width // 2, screen_height // 2, duration=0.1)
+        print("Emergency cleanup: Released mouse buttons and keyboard modifiers")
+    except Exception as e:
+        print(f"Error during emergency cleanup: {e}")
+        traceback.print_exc()
+
+# Register the emergency cleanup function to run on program exit
+atexit.register(_emergency_cleanup)
 
 logger = logging.getLogger(__name__)
 
@@ -88,50 +113,171 @@ class ScreenCapture:
         logger.info("Enhanced screen capture started")
     
     def stop(self):
-        """Stop the screen capture thread"""
+        """Stop the screen capture thread and clean up resources"""
+        logger.info("Stopping screen capture and releasing resources...")
         self.running = False
+        
+        try:
+            # Reset mouse position to center of screen to prevent cursor flickering
+            screen_width, screen_height = pyautogui.size()
+            pyautogui.moveTo(screen_width // 2, screen_height // 2, duration=0.1)
+            
+            # Explicitly release any held keys or buttons (safety measure)
+            pyautogui.mouseUp()
+            pyautogui.keyUp('shift')  # Release common modifier keys
+            pyautogui.keyUp('ctrl')
+            pyautogui.keyUp('alt')
+            
+            # Let the system recover briefly
+            time.sleep(0.2)
+            
+            logger.info("✅ Mouse position reset and keys/buttons released")
+        except Exception as e:
+            logger.error(f"❌ Error during mouse/keyboard cleanup: {e}")
+        
+        # Safely stop threads
         if self.capture_thread:
-            self.capture_thread.join(timeout=5.0)
+            try:
+                self.capture_thread.join(timeout=5.0)
+                logger.info("✅ Capture thread stopped successfully")
+            except Exception as e:
+                logger.error(f"❌ Error stopping capture thread: {e}")
+                
         if self.scroll_thread:
-            self.scroll_thread.join(timeout=5.0)
-        logger.info("Screen capture stopped")
+            try:
+                self.scroll_thread.join(timeout=5.0)
+                logger.info("✅ Scroll thread stopped successfully")
+            except Exception as e:
+                logger.error(f"❌ Error stopping scroll thread: {e}")
+                
+        # Final cleanup
+        pyautogui.FAILSAFE = True  # Reset PyAutoGUI to safe mode
+        
+        logger.info("✅ Screen capture stopped and all resources released")
     
     def _capture_loop(self):
         """Main capture loop that runs in a separate thread"""
         logger.debug("Capture loop started")
+        error_count = 0
         
         while self.running:
             try:
-                # Capture the screen
+                # Reset mouse state before each capture to prevent issues
+                if error_count > 0:
+                    # After an error, reset mouse state as precaution
+                    try:
+                        pyautogui.mouseUp()
+                        # Let the system stabilize briefly
+                        time.sleep(0.1)
+                    except Exception as cleanup_error:
+                        logger.error(f"Error resetting mouse state: {cleanup_error}")
+                
+                # Capture the screen with resource management
                 self._process_screen()
                 
-                # Sleep for the scan interval
-                time.sleep(self.scan_interval)
-            
+                # Sleep for the scan interval - different interval if we had errors
+                if error_count > 0:
+                    logger.info("Slowing down capture rate after errors")
+                    time.sleep(self.scan_interval * 2)  # Slower rate after errors
+                    error_count = max(0, error_count - 1)  # Gradually reduce error count
+                else:
+                    time.sleep(self.scan_interval)
+                
             except Exception as e:
-                logger.error(f"Error in capture loop: {e}", exc_info=True)
-                time.sleep(self.scan_interval * 2)  # Wait longer after an error
+                # Count errors to adjust scan rate
+                error_count += 1
+                logger.error(f"Error in capture loop (error #{error_count}): {e}", exc_info=True)
+                
+                # Safety measure - release mouse and reset state
+                try:
+                    pyautogui.mouseUp()
+                    time.sleep(0.2)
+                except:
+                    pass
+                
+                # Exponential backoff based on error count
+                wait_time = min(self.scan_interval * 2 * error_count, 30)  # Max 30 second backoff
+                logger.warning(f"Waiting {wait_time} seconds before next capture attempt")
+                time.sleep(wait_time)
+                
+                # If we've had too many consecutive errors, force restart the loop
+                if error_count > 5:
+                    logger.critical("Too many errors, resetting capture state")
+                    error_count = 0
+                    time.sleep(5)  # Give system time to stabilize
     
     def _auto_scroll_loop(self):
         """Auto-scroll loop to check for new messages"""
         logger.debug("Auto-scroll loop started")
+        error_count = 0
+        consecutive_success = 0
         
         while self.running:
             try:
                 # Check if it's time to scroll
                 current_time = time.time()
-                if current_time - self.last_scroll_time >= self.scroll_interval:
-                    # Scroll down to check for new messages
-                    pyautogui.scroll(-300)  # Negative value scrolls down
-                    logger.debug("Auto-scrolled down to check for new messages")
-                    self.last_scroll_time = current_time
                 
-                # Sleep briefly to avoid high CPU usage
-                time.sleep(1.0)
+                # Use a more conservative scroll interval if we've had errors
+                actual_interval = self.scroll_interval
+                if error_count > 0:
+                    # Gradually increase interval based on error count to reduce system load
+                    actual_interval = min(self.scroll_interval * (1 + error_count * 0.5), 60)
+                    
+                if current_time - self.last_scroll_time >= actual_interval:
+                    # Always reset mouse state before scrolling to ensure clean operation
+                    try:
+                        pyautogui.mouseUp()
+                        time.sleep(0.05)  # Very short pause
+                    except:
+                        pass
+                        
+                    # Use a smaller scroll amount if we've had errors
+                    scroll_amount = -300  # Default scroll amount (negative = down)
+                    if error_count > 0:
+                        scroll_amount = -150  # Gentler scrolling after errors
+                        
+                    # Scroll down to check for new messages
+                    pyautogui.scroll(scroll_amount)
+                    
+                    logger.debug(f"Auto-scrolled down to check for new messages (amount: {scroll_amount})")
+                    self.last_scroll_time = current_time
+                    
+                    # Wait briefly after scrolling to let the screen update
+                    time.sleep(0.2)
+                    
+                    # Success tracking
+                    consecutive_success += 1
+                    if consecutive_success > 5 and error_count > 0:
+                        error_count = max(0, error_count - 1)  # Gradually reduce error count after successful scrolls
+                        logger.info(f"Scroll stability improving - reducing error count to {error_count}")
+                
+                # Sleep to avoid high CPU usage - use longer sleep if we've had errors
+                sleep_time = 1.0 if error_count == 0 else min(2.0 * error_count, 5.0)
+                time.sleep(sleep_time)
                 
             except Exception as e:
-                logger.error(f"Error in auto-scroll loop: {e}", exc_info=True)
-                time.sleep(5.0)  # Wait longer after an error
+                # Error tracking
+                error_count += 1
+                consecutive_success = 0
+                
+                logger.error(f"Error in auto-scroll loop (error #{error_count}): {e}", exc_info=True)
+                
+                # Safety measure - explicitly release mouse control
+                try:
+                    pyautogui.mouseUp()
+                except:
+                    pass
+                
+                # Exponential backoff for errors
+                wait_time = min(5.0 * error_count, 30)  # Maximum 30 seconds
+                logger.warning(f"Pausing auto-scroll for {wait_time} seconds after error")
+                time.sleep(wait_time)
+                
+                # If too many consecutive errors, temporarily disable auto-scroll
+                if error_count > 3:
+                    logger.warning(f"Too many scroll errors, pausing auto-scroll for 60 seconds")
+                    time.sleep(60)
+                    error_count = 1  # Reset but keep some caution
     
     def _process_screen(self):
         """Process the current screen to find trading signals"""
@@ -236,17 +382,51 @@ class ScreenCapture:
                         trader_name = trader
                         break
                 
-                # Also extract timestamp if available
+                # Try to extract the Discord message timestamp using regex
+                discord_timestamp = None
+                # Look for patterns like "5:17 AM" or "11:45 PM" in the text
+                timestamp_patterns = [
+                    r'\d{1,2}:\d{2}\s*[AaPp][Mm]',  # 5:17 AM or 11:45 PM
+                    r'\d{1,2}:\d{2}'                # 5:17 or 23:45 (24-hour format)
+                ]
+                
+                for pattern in timestamp_patterns:
+                    timestamp_matches = re.findall(pattern, full_text)
+                    if timestamp_matches:
+                        discord_timestamp = timestamp_matches[0].strip()
+                        logger.info(f"📅 Found Discord message timestamp: {discord_timestamp}")
+                        break
+                
+                # Also extract our app timestamp
                 timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
                 
-                logger.info(f"🖱️ DIRECT CLICK: Clicking button at ({click_x}, {click_y}), score: {best_score:.2f}, trader: {trader_name}, time: {timestamp}")
+                # Combine timestamps if Discord timestamp was found
+                timestamp_info = f"time: {timestamp}"
+                if discord_timestamp:
+                    timestamp_info = f"Discord time: {discord_timestamp}, detected at: {timestamp}"
+                
+                logger.info(f"🖱️ DIRECT CLICK: Clicking button at ({click_x}, {click_y}), score: {best_score:.2f}, trader: {trader_name}, {timestamp_info}")
                 
                 try:
-                    # Move to position first, then click
-                    pyautogui.moveTo(click_x, click_y, duration=0.1)
+                    # Move to position first, then click with safer approach
+                    # Using a step-by-step approach gives better control over the process
+                    pyautogui.moveTo(click_x, click_y, duration=0.2)  # Move slightly slower for reliability
+                    time.sleep(0.2)
+                    pyautogui.mouseDown()  # Press the button down
                     time.sleep(0.1)
-                    pyautogui.click()
-                    logger.info(f"✅ DIRECT CLICK SUCCESSFUL: Button clicked at ({click_x}, {click_y}) for trader {trader_name}")
+                    pyautogui.mouseUp()    # Release the button - proper click cycle
+                    
+                    message_info = f"for trader {trader_name}"
+                    if discord_timestamp:
+                        message_info = f"for trader {trader_name} (message sent at {discord_timestamp})"
+                    logger.info(f"✅ DIRECT CLICK SUCCESSFUL: Button clicked at ({click_x}, {click_y}) {message_info}")
+                    
+                    # Ensure mouse is released and in a neutral state
+                    try:
+                        # Move mouse slightly away from the click position to avoid accidental double-clicks
+                        pyautogui.moveRel(10, 10, duration=0.1)
+                    except:
+                        pass
                     
                     # Wait for content to appear - add longer delay to ensure content loads
                     time.sleep(1.5)
@@ -259,6 +439,11 @@ class ScreenCapture:
                     # Regular processing will continue after this
                 except Exception as e:
                     logger.error(f"❌ DIRECT CLICK FAILED: Error clicking button: {e}", exc_info=True)
+                    # Always ensure mouse buttons are released after an error
+                    try:
+                        pyautogui.mouseUp()
+                    except:
+                        pass
         
         # Continue with the original button detection as a backup
         # First, scan the entire image for "Unlock Content" buttons directly
@@ -288,19 +473,58 @@ class ScreenCapture:
                     trader_name = trader
                     break
             
+            # Try to extract the Discord message timestamp using regex
+            discord_timestamp = None
+            # Look for patterns like "5:17 AM" or "11:45 PM" in the text
+            timestamp_patterns = [
+                r'\d{1,2}:\d{2}\s*[AaPp][Mm]',  # 5:17 AM or 11:45 PM
+                r'\d{1,2}:\d{2}'                # 5:17 or 23:45 (24-hour format)
+            ]
+            
+            for pattern in timestamp_patterns:
+                timestamp_matches = re.findall(pattern, full_text)
+                if timestamp_matches:
+                    discord_timestamp = timestamp_matches[0].strip()
+                    logger.info(f"📅 Found Discord message timestamp: {discord_timestamp}")
+                    break
+            
             # Get timestamp for tracking
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Combine timestamps if Discord timestamp was found
+            timestamp_info = f"time: {timestamp}"
+            if discord_timestamp:
+                timestamp_info = f"Discord time: {discord_timestamp}, detected at: {timestamp}"
                 
             # Click the button - force a click even if we're not sure about the trader
-            logger.info(f"🖱️ ATTEMPTING TO CLICK: 'Unlock Content' button at ({click_x}, {click_y}), trader: {trader_name}, time: {timestamp}")
+            logger.info(f"🖱️ ATTEMPTING TO CLICK: 'Unlock Content' button at ({click_x}, {click_y}), trader: {trader_name}, {timestamp_info}")
             try:
-                # Move to position first, then click
-                pyautogui.moveTo(click_x, click_y, duration=0.1)
+                # Move to position first, then click with safer approach
+                # Using a step-by-step approach gives better control over the process
+                pyautogui.moveTo(click_x, click_y, duration=0.2)  # Move slightly slower for reliability
+                time.sleep(0.2)
+                pyautogui.mouseDown()  # Press the button down
                 time.sleep(0.1)
-                pyautogui.click()
-                logger.info(f"✅ CLICK SUCCESSFUL: 'Unlock Content' button clicked at ({click_x}, {click_y}) for trader {trader_name}")
+                pyautogui.mouseUp()    # Release the button - proper click cycle
+                
+                message_info = f"for trader {trader_name}"
+                if discord_timestamp:
+                    message_info = f"for trader {trader_name} (message sent at {discord_timestamp})"
+                logger.info(f"✅ CLICK SUCCESSFUL: 'Unlock Content' button clicked at ({click_x}, {click_y}) {message_info}")
+                
+                # Ensure mouse is released and in a neutral state
+                try:
+                    # Move mouse slightly away from the click position to avoid accidental double-clicks
+                    pyautogui.moveRel(10, 10, duration=0.1)
+                except:
+                    pass
             except Exception as e:
                 logger.error(f"❌ CLICK FAILED: Error clicking button: {e}", exc_info=True)
+                # Always ensure mouse buttons are released after an error
+                try:
+                    pyautogui.mouseUp()
+                except:
+                    pass
             
             # Wait for content to appear - add longer delay to ensure content loads
             time.sleep(1.5)
@@ -1074,24 +1298,62 @@ class ScreenCapture:
                 if trader in full_text or self._match_trader(trader, full_text):
                     trader_name = trader
                     break
+            
+            # Try to extract the Discord message timestamp using regex
+            discord_timestamp = None
+            # Look for patterns like "5:17 AM" or "11:45 PM" in the text
+            timestamp_patterns = [
+                r'\d{1,2}:\d{2}\s*[AaPp][Mm]',  # 5:17 AM or 11:45 PM
+                r'\d{1,2}:\d{2}'                # 5:17 or 23:45 (24-hour format)
+            ]
+            
+            for pattern in timestamp_patterns:
+                timestamp_matches = re.findall(pattern, full_text)
+                if timestamp_matches:
+                    discord_timestamp = timestamp_matches[0].strip()
+                    logger.info(f"📅 Found Discord message timestamp: {discord_timestamp}")
+                    break
                     
-            # Get timestamp for tracking
+            # Get our application timestamp for tracking
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
             
-            logger.warning(f"🖱️ EMERGENCY CLICK: Attempting to click at ({click_x}, {click_y}), match score: {score:.2f}, trader: {trader_name}, time: {timestamp}")
+            # Combine timestamps if Discord timestamp was found
+            timestamp_info = f"time: {timestamp}"
+            if discord_timestamp:
+                timestamp_info = f"Discord time: {discord_timestamp}, detected at: {timestamp}"
+            
+            logger.warning(f"🖱️ EMERGENCY CLICK: Attempting to click at ({click_x}, {click_y}), match score: {score:.2f}, trader: {trader_name}, {timestamp_info}")
             
             try:
-                # Move mouse and click
+                # Move mouse and click using safer approach with explicit down/up
                 pyautogui.moveTo(click_x, click_y, duration=0.2)
+                time.sleep(0.2)
+                pyautogui.mouseDown()  # Press the button down
                 time.sleep(0.1)
-                pyautogui.click()
-                logger.warning(f"✅ EMERGENCY CLICK SUCCESSFUL at ({click_x}, {click_y}) for trader {trader_name}")
+                pyautogui.mouseUp()    # Release the button - proper click cycle
+                
+                message_info = f"for trader {trader_name}"
+                if discord_timestamp:
+                    message_info = f"for trader {trader_name} (message sent at {discord_timestamp})"
+                logger.warning(f"✅ EMERGENCY CLICK SUCCESSFUL at ({click_x}, {click_y}) {message_info}")
                 click_count += 1
+                
+                # Ensure mouse is released and in a neutral state
+                try:
+                    # Move mouse slightly away from the click position to avoid accidental double-clicks
+                    pyautogui.moveRel(10, 10, duration=0.1)
+                except:
+                    pass
                 
                 # Wait between clicks
                 time.sleep(1.0)
             except Exception as e:
                 logger.error(f"❌ EMERGENCY CLICK FAILED: {e}")
+                # Always ensure mouse buttons are released after an error
+                try:
+                    pyautogui.mouseUp()
+                except:
+                    pass
                 
         if click_count > 0:
             logger.warning(f"✅ CLICKED {click_count} POTENTIAL UNLOCK BUTTONS")
