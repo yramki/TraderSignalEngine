@@ -51,6 +51,71 @@ class ScreenCapture:
     Detects and captures trading signals with trader filtering
     """
     
+    @staticmethod
+    def extract_discord_timestamp(text):
+        """
+        Extract Discord message timestamp from text
+        Returns the actual message timestamp, not the current time
+        
+        Args:
+            text: Full text from OCR
+            
+        Returns:
+            str: Timestamp or None if not found
+        """
+        discord_timestamp = None
+        
+        try:
+            # Look for "APP" followed by time - this is a common Discord UI pattern in "WG Bot APP 6:17 AM"
+            app_time_pattern = r'APP\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])'
+            app_matches = re.findall(app_time_pattern, text)
+            
+            if app_matches:
+                # Found time near APP tag which is more reliable
+                return app_matches[0].strip()
+            
+            # Try looking for timestamps adjacent to typical Discord bot names
+            bot_patterns = [
+                r'WG Bot\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
+                r'Bot\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])'
+            ]
+            
+            for pattern in bot_patterns:
+                bot_matches = re.findall(pattern, text)
+                if bot_matches:
+                    return bot_matches[0].strip()
+            
+            # General patterns to look for timestamps if specific patterns fail
+            timestamp_patterns = [
+                r'\d{1,2}:\d{2}\s*[AaPp][Mm]',  # 5:17 AM or 11:45 PM
+                r'\d{1,2}:\d{2}'                # 5:17 or 23:45 (24-hour format)
+            ]
+            
+            # Get the current hour to avoid matching current time accidentally
+            current_hour = time.strftime("%I")
+            current_hour_int = int(current_hour.lstrip('0'))
+            
+            for pattern in timestamp_patterns:
+                matches = re.findall(pattern, text)
+                for match in matches:
+                    match = match.strip()
+                    
+                    # Try to extract just the hour to compare with current hour
+                    hour_match = re.match(r'(\d{1,2}):', match)
+                    if hour_match:
+                        match_hour = int(hour_match.group(1))
+                        
+                        # If the hour is different from current hour, it's likely a Discord timestamp
+                        # not the current time mistakenly detected
+                        if match_hour != current_hour_int:
+                            return match
+            
+            # If no timestamp found, return None
+            return None
+        except Exception as e:
+            # In case of any error, return None
+            return None
+    
     def __init__(self, scan_interval=2.0, click_hidden_messages=True, 
                  target_traders=None, monitor_specific_channel=True, channel_name="trades",
                  target_server="Wealth Group", auto_scroll=True, scroll_interval=30.0):
@@ -382,20 +447,10 @@ class ScreenCapture:
                         trader_name = trader
                         break
                 
-                # Try to extract the Discord message timestamp using regex
-                discord_timestamp = None
-                # Look for patterns like "5:17 AM" or "11:45 PM" in the text
-                timestamp_patterns = [
-                    r'\d{1,2}:\d{2}\s*[AaPp][Mm]',  # 5:17 AM or 11:45 PM
-                    r'\d{1,2}:\d{2}'                # 5:17 or 23:45 (24-hour format)
-                ]
-                
-                for pattern in timestamp_patterns:
-                    timestamp_matches = re.findall(pattern, full_text)
-                    if timestamp_matches:
-                        discord_timestamp = timestamp_matches[0].strip()
-                        logger.info(f"📅 Found Discord message timestamp: {discord_timestamp}")
-                        break
+                # Extract Discord message timestamp using our helper method
+                discord_timestamp = self.extract_discord_timestamp(full_text)
+                if discord_timestamp:
+                    logger.info(f"📅 Found Discord message timestamp: {discord_timestamp}")
                 
                 # Also extract our app timestamp
                 timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -473,20 +528,10 @@ class ScreenCapture:
                     trader_name = trader
                     break
             
-            # Try to extract the Discord message timestamp using regex
-            discord_timestamp = None
-            # Look for patterns like "5:17 AM" or "11:45 PM" in the text
-            timestamp_patterns = [
-                r'\d{1,2}:\d{2}\s*[AaPp][Mm]',  # 5:17 AM or 11:45 PM
-                r'\d{1,2}:\d{2}'                # 5:17 or 23:45 (24-hour format)
-            ]
-            
-            for pattern in timestamp_patterns:
-                timestamp_matches = re.findall(pattern, full_text)
-                if timestamp_matches:
-                    discord_timestamp = timestamp_matches[0].strip()
-                    logger.info(f"📅 Found Discord message timestamp: {discord_timestamp}")
-                    break
+            # Extract Discord message timestamp using our helper method
+            discord_timestamp = self.extract_discord_timestamp(full_text)
+            if discord_timestamp:
+                logger.info(f"📅 Found Discord message timestamp: {discord_timestamp}")
             
             # Get timestamp for tracking
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
