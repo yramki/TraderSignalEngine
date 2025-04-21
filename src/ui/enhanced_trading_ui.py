@@ -14,6 +14,7 @@ import logging
 import queue
 import configparser
 import numpy as np
+import re
 try:
     import pyautogui
     import cv2  # OpenCV for image processing
@@ -960,11 +961,27 @@ class EnhancedTradingUI:
                                         self._log_message(f"Channel 'trades' inferred from Unlock Content buttons", level="DEBUG")
                                         
                                     # If we detect any trader names, it's likely we're in the right channel
-                                    for trader in ["@Eliz", "@Johnny", "@Woods", "@Michele"]:
-                                        if trader in recent_log:
+                                    # Use more precise detection with word boundaries to avoid partial matches
+                                    trader_patterns = {
+                                        "@Atackz": r'\b@Atackz\b',
+                                        "@Johnny": r'\b@Johnny\b',
+                                        "@Woods": r'\b@Woods\b',
+                                        "@Michele": r'\b@Michele\b'
+                                    }
+                                    
+                                    trader_found = False
+                                    for trader, pattern in trader_patterns.items():
+                                        if re.search(pattern, recent_log, re.IGNORECASE):
+                                            trader_found = True
                                             channel_detected = True
+                                            # Only log at debug level to avoid repetitive messages
                                             self._log_message(f"Channel 'trades' inferred from trader mention: {trader}", level="DEBUG")
                                             break
+                                            
+                                    # If no specific trader found but we see a mention of traders generally
+                                    if not trader_found and "trader mention" in recent_log:
+                                        channel_detected = True
+                                        # Do not log every time to avoid repetition
                                     
                                     # Important log pattern: "Found indicators: Discord, Wealth Group, trades channel..."
                                     if ("Found indicators: Discord" in recent_log and 
@@ -991,7 +1008,20 @@ class EnhancedTradingUI:
                                         # In this case we can infer the channel
                                         channel_detected = True
                                     
-                                    self._log_message(f"UI Status update: Discord=True, Server={server_detected}, Channel={channel_detected}", level="INFO")
+                                    # Only log if there's a status change to avoid repetitive messages
+                                    if not hasattr(self, '_last_discord_status') or \
+                                       not hasattr(self, '_last_server_status') or \
+                                       not hasattr(self, '_last_channel_status') or \
+                                       self._last_discord_status != discord_detected or \
+                                       self._last_server_status != server_detected or \
+                                       self._last_channel_status != channel_detected:
+                                        
+                                        self._log_message(f"UI Status update: Discord=True, Server={server_detected}, Channel={channel_detected}", level="INFO")
+                                        
+                                        # Store status for next comparison
+                                        self._last_discord_status = discord_detected
+                                        self._last_server_status = server_detected
+                                        self._last_channel_status = channel_detected
                             else:
                                 # Old version or detection failed
                                 self._log_message(f"Discord detector (legacy): Discord={result}", level="INFO")
