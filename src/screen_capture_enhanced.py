@@ -589,6 +589,10 @@ class ScreenCapture:
         
         logger.info(f"✅ VERIFIED: Discord with '{self.target_server}' server and '{self.channel_name}' channel is visible")
         
+        # DIRECT APPROACH: Just find Unlock Content buttons and click them if they have a target trader nearby
+        # This is a simpler, more reliable approach than trying to detect all 3 criteria in a complex way
+        self._direct_button_detection(screenshot_cv)
+        
         # First, try our targeted detection with the exact 3-point criteria
         signal_detected, signal_data = self._detect_trading_signal(screenshot_cv)
         
@@ -2796,4 +2800,203 @@ class ScreenCapture:
             return True
         else:
             logger.warning("❌ NO SUITABLE BUTTONS FOUND")
+            return False
+            
+    def _direct_button_detection(self, screenshot_cv):
+        """
+        Direct approach to find and click Unlock Content buttons
+        This is a simpler, more reliable approach focusing just on the buttons
+        
+        Args:
+            screenshot_cv: OpenCV screenshot image
+        """
+        logger.info("🔍 DIRECT BUTTON SEARCH: Looking for 'Unlock Content' buttons with simplified approach...")
+        
+        try:
+            # Extract text using OCR for context
+            pil_image = Image.fromarray(cv2.cvtColor(screenshot_cv, cv2.COLOR_BGR2RGB))
+            full_text = pytesseract.image_to_string(pil_image).lower()
+            
+            # Check for "unlock content" or "press the button" text
+            unlock_phrases = [
+                "unlock content", 
+                "press the button", 
+                "press the button to unlock", 
+                "click to unlock", 
+                "unlock"
+            ]
+            
+            unlock_text_found = False
+            for phrase in unlock_phrases:
+                if phrase in full_text:
+                    unlock_text_found = True
+                    logger.info(f"✅ Found '{phrase}' text in screen")
+                    break
+            
+            if not unlock_text_found:
+                logger.debug("❌ No unlock button text found - skipping direct button search")
+                return False
+                
+            # Check for any target traders in text
+            trader_found = False
+            found_trader = None
+            
+            # Log the full text for debugging purposes
+            logger.info(f"🔍 OCR TEXT SAMPLE: {full_text[:300]}...")
+            
+            # Do simple substring matching first for exact trader names
+            for trader in self.target_traders:
+                trader_lower = trader.lower().replace('@', '')  # Remove @ for more flexible matching
+                if trader_lower in full_text:
+                    trader_found = True
+                    found_trader = trader
+                    logger.info(f"✅ Found direct mention of trader {trader} in text")
+                    break
+            
+            # If no direct match, try more flexible matching
+            if not trader_found and self.target_traders:
+                for trader in self.target_traders:
+                    # Look for name without @ symbol
+                    trader_name = trader.replace('@', '')
+                    if trader_name.lower() in full_text:
+                        trader_found = True
+                        found_trader = trader
+                        logger.info(f"✅ Found mention of trader name {trader_name} in text")
+                        break
+            
+            # Only proceed if we have both unlock text and a target trader (if filtering is enabled)
+            # If we're not filtering by traders, proceed anyway
+            if self.target_traders and not trader_found and len(self.target_traders) > 0:
+                logger.info(f"❌ No target trader found in text. Looking for: {', '.join(self.target_traders)}")
+                # Continue anyway - Discord sometimes doesn't OCR trader names well
+                logger.info("⚠️ Continuing with button detection despite no trader detected (OCR limitations)")
+            
+            # Convert to HSV for color detection
+            hsv = cv2.cvtColor(screenshot_cv, cv2.COLOR_BGR2HSV)
+            
+            # Use multiple blue color masks for better detection (Discord blue)
+            blue_ranges = [
+                # Standard Discord blue
+                (np.array([100, 150, 100]), np.array([140, 255, 255])),
+                # Lighter blue variation
+                (np.array([90, 100, 100]), np.array([150, 255, 255])),
+                # Wider range for variation
+                (np.array([80, 60, 100]), np.array([160, 255, 255]))
+            ]
+            
+            # Apply all masks and combine
+            all_contours = []
+            for lower, upper in blue_ranges:
+                mask = cv2.inRange(hsv, lower, upper)
+                contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                all_contours.extend(contours)
+            
+            # Filter contours by size and shape to find Discord button rectangles
+            button_candidates = []
+            
+            for contour in all_contours:
+                x, y, w, h = cv2.boundingRect(contour)
+                aspect_ratio = float(w) / h
+                
+                # Discord's "Unlock Content" buttons are typically around 140-270px wide and 35-45px high
+                if ((4.0 > aspect_ratio > 2.0) and  # Reasonable aspect ratio
+                   ((80 < w < 300 and 25 < h < 50) or  # General button size range
+                    (250 < w < 300 and 35 < h < 45))):  # Discord "Unlock Content" button size
+                    
+                    # Assign score based on how closely it matches Discord buttons
+                    score = 1.0
+                    
+                    # Boost score for ideal Discord button dimensions
+                    if 250 < w < 300 and 35 < h < 45:
+                        score += 1.0  # Perfect match
+                    elif 120 < w < 180 and 30 < h < 40:
+                        score += 0.5  # Good match
+                        
+                    # Add to candidates with score
+                    button_candidates.append((x, y, w, h, score))
+            
+            # Sort by score (highest first)
+            button_candidates.sort(key=lambda x: x[4], reverse=True)
+            
+            if not button_candidates:
+                logger.info("❌ No suitable button candidates found")
+                return False
+                
+            # Log all top candidates
+            for i, (x, y, w, h, score) in enumerate(button_candidates[:3]):
+                logger.info(f"Button candidate #{i+1}: ({x}, {y}), size: {w}x{h}, score: {score:.2f}")
+                
+            # Use the highest scoring candidate
+            x, y, w, h, score = button_candidates[0]
+            click_x, click_y = x + w // 2, y + h // 2
+            
+            # Create clear log message
+            current_time = time.strftime("%H:%M:%S")
+            if trader_found:
+                logger.info(f"👤 TRADING SIGNAL FOUND: {found_trader}, Time: {current_time}")
+            else:
+                logger.info(f"👤 TRADING SIGNAL FOUND (no specific trader), Time: {current_time}")
+                
+            logger.info(f"🖱️ CLICKING 'Unlock Content' button at ({click_x}, {click_y})")
+            
+            # Always save a screenshot of what we're clicking
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            logs_dir = os.path.join(os.getcwd(), "logs")
+            os.makedirs(logs_dir, exist_ok=True)
+            screenshot_path = os.path.join(logs_dir, f"button_click_{timestamp}.png")
+            
+            # Draw a circle at the click location
+            marked_screenshot = screenshot_cv.copy()
+            cv2.circle(marked_screenshot, (click_x, click_y), 20, (0, 255, 0), 3)
+            cv2.imwrite(screenshot_path, marked_screenshot)
+            logger.info(f"📸 Saved button click screenshot: {screenshot_path}")
+            
+            # Click the button using the appropriate controller
+            click_successful = False
+            
+            # First try macOS native clicking if available (more reliable)
+            if hasattr(input_controller, 'click'):
+                try:
+                    logger.info(f"Using macOS native click at {click_x}, {click_y}")
+                    input_controller.click(click_x, click_y)
+                    click_successful = True
+                    logger.info(f"✅ Native click successful on button at ({click_x}, {click_y})")
+                except Exception as e:
+                    logger.error(f"❌ Error using native click: {e}")
+                    logger.info("Falling back to PyAutoGUI click...")
+            
+            # Fall back to PyAutoGUI if native click failed or isn't available
+            if not click_successful:
+                try:
+                    logger.info(f"Using PyAutoGUI click at {click_x}, {click_y}")
+                    # Use a clearer click cycle with explicit down/up
+                    pyautogui.moveTo(click_x, click_y, duration=0.2)
+                    time.sleep(0.1)  # Short pause for stability
+                    pyautogui.mouseDown()
+                    time.sleep(0.1)
+                    pyautogui.mouseUp()
+                    click_successful = True
+                    logger.info(f"✅ PyAutoGUI click successful on button at ({click_x}, {click_y})")
+                except Exception as e:
+                    logger.error(f"❌ Error using PyAutoGUI click: {e}")
+                    return False
+            
+            # If click was successful, wait a moment and scroll down to see new content
+            if click_successful:
+                logger.info("⬇️ Scrolling down to view unlocked content")
+                time.sleep(0.5)  # Wait for content to appear
+                pyautogui.scroll(-300)  # Scroll down to see newly revealed message
+                
+                # Log clear success message
+                if trader_found:
+                    logger.info(f"✅ Successfully clicked 'Unlock Content' button for trader {found_trader}")
+                else:
+                    logger.info(f"✅ Successfully clicked 'Unlock Content' button (no specific trader)")
+                
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ Direct button detection failed: {e}", exc_info=True)
             return False
