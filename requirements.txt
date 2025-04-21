@@ -1,0 +1,14 @@
+"""
+Requirements file for Discord Trading Signal Scraper
+"""
+
+# Core dependencies
+pyautogui==0.9.54
+opencv-python==4.8.0.76
+pytesseract==0.3.10
+numpy==1.24.3
+Pillow==10.0.0
+requests==2.31.0
+
+# UI dependencies
+tk==0.1.0

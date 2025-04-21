@@ -1,0 +1,22 @@
+{
+  "name": "discord-trading-bot",
+  "version": "1.0.0",
+  "description": "Discord Trading Signal Scraper and Phemex Trading Bot",
+  "dependencies": {
+    "pyautogui": "0.9.54",
+    "opencv-python": "4.8.0.76",
+    "pytesseract": "0.3.10",
+    "numpy": "1.24.3",
+    "Pillow": "10.0.0",
+    "requests": "2.31.0",
+    "tk": "0.1.0",
+    "customtkinter": "5.2.0",
+    "matplotlib": "3.7.2",
+    "pandas": "2.0.3"
+  },
+  "ui_enhancements": {
+    "customtkinter": "Modern looking UI toolkit based on tkinter",
+    "matplotlib": "For creating charts and visualizing trading data",
+    "pandas": "For data manipulation and analysis"
+  }
+}
