@@ -588,6 +588,63 @@ class ScreenCapture:
         
         logger.info(f"✅ VERIFIED: Discord with '{self.target_server}' server and '{self.channel_name}' channel is visible")
         
+        # First, try our targeted detection with the exact 3-point criteria
+        signal_detected, signal_data = self._detect_trading_signal(screenshot_cv)
+        
+        # If we detected a complete trading signal (all 3 criteria met)
+        if signal_detected:
+            logger.info(f"🎯 COMPLETE TRADING SIGNAL DETECTED - All 3 criteria matched")
+            
+            # Extract the button coordinates
+            if signal_data["button_coords"]:
+                x, y, w, h = signal_data["button_coords"]
+                click_x, click_y = x + w // 2, y + h // 2
+                
+                logger.info(f"🖱️ Clicking 'Unlock Content' button at ({click_x}, {click_y}) for trader {signal_data['trader']}")
+                
+                # Use fallback if we can't use direct mouse control
+                click_successful = False
+                
+                # First try native macOS clicking if available (more reliable)
+                if hasattr(input_controller, 'click'):
+                    try:
+                        logger.info(f"Using macOS native click at {click_x}, {click_y}")
+                        input_controller.click(click_x, click_y)
+                        click_successful = True
+                        logger.info(f"✅ Native click successful on button at ({click_x}, {click_y})")
+                    except Exception as e:
+                        logger.error(f"❌ Error using native click: {e}")
+                        logger.info("Falling back to PyAutoGUI click...")
+                        
+                # Fall back to PyAutoGUI if native click failed or isn't available
+                if not click_successful:
+                    try:
+                        logger.info(f"Using PyAutoGUI click at {click_x}, {click_y}")
+                        pyautogui.moveTo(click_x, click_y, duration=0.2)
+                        time.sleep(0.1)  # Short pause for stability
+                        pyautogui.click(click_x, click_y)
+                        click_successful = True
+                        logger.info(f"✅ PyAutoGUI click successful on button at ({click_x}, {click_y})")
+                    except Exception as e:
+                        logger.error(f"❌ Error using PyAutoGUI click: {e}")
+                
+                # Wait for content to appear and scroll down to see the latest messages
+                if click_successful:
+                    logger.info(f"✅ Trading signal processed successfully for trader {signal_data['trader']}")
+                    time.sleep(1.0)
+                    
+                    # Scroll down to see the newly revealed content
+                    logger.info("⬇️ Scrolling down to view unlocked content")
+                    pyautogui.scroll(-300)  # Scroll down
+                    time.sleep(0.5)
+                    
+                    # Return early - we've handled this signal
+                    return
+                    
+            else:
+                logger.warning("❌ No button coordinates found despite signal detection")
+        
+        # If our targeted detection failed, fall back to the original approach
         # Check for unlock text directly in the full screenshot
         pil_image = Image.fromarray(cv2.cvtColor(screenshot_cv, cv2.COLOR_BGR2RGB))
         full_text = pytesseract.image_to_string(pil_image)
@@ -1827,6 +1884,198 @@ class ScreenCapture:
             logger.info(f"Found trader match: {trader} in text (confidence: {confidence:.2f})")
         
         return result
+        
+    def _detect_trading_signal(self, screenshot):
+        """
+        Highly focused detection of trading signals based on exact pattern:
+        1. Target trader @handle (any of @Eliz, @Johnny, @Woods, @Michele)
+        2. "Press the button to unlock the content" text nearby
+        3. Blue "Unlock Content" button
+        
+        Args:
+            screenshot: OpenCV image of the screen
+            
+        Returns:
+            tuple: (success, data) where data contains details about the match
+        """
+        logger.debug("🔍 Performing targeted trading signal detection...")
+        
+        # First extract text from the full screenshot
+        pil_image = Image.fromarray(cv2.cvtColor(screenshot, cv2.COLOR_BGR2RGB))
+        full_text = pytesseract.image_to_string(pil_image).lower()
+        
+        # Initialize results
+        result = {
+            "success": False,
+            "trader": None,
+            "button_coords": None,
+            "unlock_text_found": False
+        }
+        
+        # 1. Look for target trader mentions (prioritize exact matches)
+        trader_found = False
+        target_trader = None
+        
+        for trader in self.target_traders:
+            normalized_trader = trader.lower()
+            if normalized_trader in full_text:
+                trader_found = True
+                target_trader = trader
+                logger.info(f"🎯 Found exact mention of trader {trader} in text")
+                break
+        
+        # If exact match failed, try with confidence-based matching
+        if not trader_found and self.target_traders:
+            for trader in self.target_traders:
+                confidence = self._match_trader_with_confidence(trader, full_text)
+                if confidence >= 0.7:  # Higher threshold for more reliable detection
+                    trader_found = True
+                    target_trader = trader
+                    logger.info(f"🎯 Found trader {trader} with confidence {confidence:.2f}")
+                    break
+        
+        # If no target trader found, exit early
+        if not trader_found:
+            if self.target_traders:
+                logger.debug(f"No target traders found in screen content")
+            else:
+                # If no target traders configured, assume any trader is valid
+                trader_found = True
+                target_trader = "Any"
+                logger.debug("No trader filtering active, proceeding with general detection")
+        
+        result["trader"] = target_trader
+        
+        # 2. Look for "Press the button to unlock the content" text  
+        unlock_phrases = [
+            "press the button to unlock the content", 
+            "press the button to unlock", 
+            "click to view this content",
+            "click to unlock",
+            "unlock content"
+        ]
+        
+        unlock_text_found = False
+        for phrase in unlock_phrases:
+            if phrase in full_text:
+                unlock_text_found = True
+                logger.info(f"🎯 Found unlock instruction: '{phrase}'")
+                break
+        
+        result["unlock_text_found"] = unlock_text_found
+        
+        # 3. Look for the blue "Unlock Content" button
+        # First try macOS Accessibility API if available
+        button_found = False
+        button_coords = None
+        
+        # Try native macOS button detection if available
+        if hasattr(input_controller, 'get_button_coordinates'):
+            try:
+                logger.debug("Trying macOS Accessibility API for button detection...")
+                button_data = input_controller.get_button_coordinates("Unlock Content")
+                if button_data:
+                    x, y, w, h = button_data
+                    button_found = True
+                    button_coords = (x, y, w, h)
+                    logger.info(f"🎯 Found 'Unlock Content' button at ({x}, {y}) using macOS API")
+            except Exception as e:
+                logger.debug(f"Error using macOS API for button detection: {e}")
+        
+        # Fall back to visual detection if API didn't work
+        if not button_found:
+            # Convert to HSV for better color detection
+            hsv = cv2.cvtColor(screenshot, cv2.COLOR_BGR2HSV)
+            
+            # Discord blue button color range in HSV
+            # Adjusted based on testing with screenshots
+            blue_lower = np.array([100, 50, 100])
+            blue_upper = np.array([140, 255, 255])
+            
+            # Create blue mask
+            blue_mask = cv2.inRange(hsv, blue_lower, blue_upper)
+            
+            # Find contours
+            contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Look for button-like contours
+            for contour in contours:
+                x, y, w, h = cv2.boundingRect(contour)
+                
+                # Discord buttons have specific aspect ratios (width > height, but not too extreme)
+                aspect_ratio = float(w) / h
+                if 2.0 <= aspect_ratio <= 4.0 and w >= 80 and h >= 20 and h <= 50:
+                    # Extract button region for OCR
+                    button_region = screenshot[y:y+h, x:x+w]
+                    
+                    # Convert to grayscale and threshold for better text detection
+                    button_gray = cv2.cvtColor(button_region, cv2.COLOR_BGR2GRAY)
+                    _, button_thresh = cv2.threshold(button_gray, 150, 255, cv2.THRESH_BINARY_INV)
+                    
+                    # Extract text
+                    button_text = pytesseract.image_to_string(button_thresh).lower()
+                    
+                    # Check for "unlock content" text
+                    if "unlock" in button_text or "content" in button_text:
+                        button_found = True
+                        button_coords = (x, y, w, h)
+                        logger.info(f"🎯 Found visual 'Unlock Content' button at ({x}, {y}), size {w}x{h}")
+                        
+                        # Save a screenshot with the detected button
+                        screenshot_file = self._save_screenshot_with_highlight(
+                            screenshot, 
+                            (x, y, w, h),
+                            f"unlock_button_{int(time.time())}"
+                        )
+                        if screenshot_file:
+                            logger.info(f"📸 Saved button detection screenshot: {screenshot_file}")
+                        break
+        
+        # If still no button found, try emergency detection
+        if not button_found:
+            emergency_buttons = self._find_emergency_buttons(screenshot)
+            if emergency_buttons:
+                # Take the top-scoring emergency button
+                x, y, w, h, score = emergency_buttons[0]
+                button_found = True
+                button_coords = (x, y, w, h)
+                logger.info(f"🎯 Found emergency 'Unlock Content' button at ({x}, {y}), score: {score:.2f}")
+        
+        result["button_coords"] = button_coords
+        
+        # Determine success based on all criteria
+        result["success"] = trader_found and unlock_text_found and button_found
+        
+        # Log the overall result
+        if result["success"]:
+            logger.info(f"🔍 COMPLETE TRADING SIGNAL DETECTED:")
+            logger.info(f"✅ 1. Trader: {target_trader}")
+            logger.info(f"✅ 2. Unlock text: Found")
+            logger.info(f"✅ 3. Unlock button: Found at {button_coords}")
+            
+            # Save a full screenshot with the detection
+            if button_coords:
+                screenshot_file = self._save_screenshot_with_highlight(
+                    screenshot, 
+                    button_coords,
+                    f"trading_signal_{target_trader.replace('@', '')}"
+                )
+                if screenshot_file:
+                    logger.info(f"📸 Saved trading signal screenshot: {screenshot_file}")
+        else:
+            # Log what's missing
+            missing = []
+            if not trader_found:
+                missing.append("Target trader mention")
+            if not unlock_text_found:
+                missing.append("'Press the button to unlock' text")
+            if not button_found:
+                missing.append("'Unlock Content' button")
+                
+            if missing:
+                logger.debug(f"⚠️ Incomplete trading signal. Missing: {', '.join(missing)}")
+        
+        return result["success"], result
     
     def _find_unlock_button(self, image):
         """
