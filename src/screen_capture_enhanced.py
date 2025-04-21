@@ -939,16 +939,34 @@ class ScreenCapture:
             try:
                 # Move to position first, then click with safer approach
                 # Using a step-by-step approach gives better control over the process
+                # Log detailed click attempt information first
+                click_attempt_details = {
+                    "coordinates": (click_x, click_y),
+                    "trader": trader_name,
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "discord_timestamp": discord_timestamp,
+                    "button_region": unlock_button_region if 'unlock_button_region' in locals() else None
+                }
+                logger.info(f"🖱️ Executing click at ({click_x}, {click_y}) for trader {trader_name}")
+                
+                # Perform the click with precise control
                 pyautogui.moveTo(click_x, click_y, duration=0.2)  # Move slightly slower for reliability
                 time.sleep(0.2)
                 pyautogui.mouseDown()  # Press the button down
                 time.sleep(0.1)
                 pyautogui.mouseUp()    # Release the button - proper click cycle
                 
+                # Construct detailed success message
                 message_info = f"for trader {trader_name}"
                 if discord_timestamp:
                     message_info = f"for trader {trader_name} (message sent at {discord_timestamp})"
-                logger.info(f"✅ CLICK SUCCESSFUL: 'Unlock Content' button clicked at ({click_x}, {click_y}) {message_info}")
+                
+                # Add more details to success log
+                button_type = "detected via image processing"
+                if button_found_via_api:
+                    button_type = "detected via macOS API"
+                
+                logger.info(f"✅ CLICK SUCCESSFUL: 'Unlock Content' button ({button_type}) clicked at ({click_x}, {click_y}) {message_info}")
                 
                 # Ensure mouse is released and in a neutral state
                 try:
@@ -957,11 +975,22 @@ class ScreenCapture:
                 except:
                     pass
             except Exception as e:
-                logger.error(f"❌ CLICK FAILED: Error clicking button: {e}", exc_info=True)
+                # Record detailed error information
+                error_details = {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "coordinates": (click_x, click_y) if 'click_x' in locals() and 'click_y' in locals() else "Unknown",
+                    "trader": trader_name,
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+                }
+                logger.error(f"❌ CLICK FAILED: Error clicking button at {error_details['coordinates']} for trader {trader_name}: {e}", exc_info=True)
+                
                 # Always ensure mouse buttons are released after an error
                 try:
                     pyautogui.mouseUp()
-                except:
+                    logger.info("🖱️ Mouse button released after click failure")
+                except Exception as release_error:
+                    logger.error(f"❌ Failed to release mouse button: {release_error}")
                     pass
             
             # Wait for content to appear - add longer delay to ensure content loads

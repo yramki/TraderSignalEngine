@@ -206,7 +206,7 @@ def click_button_by_text(button_text):
     controller = get_controller()
     
     if controller == ControllerType.PYAUTOGUI:
-        logger.warning("Button text clicking not supported with PyAutoGUI controller")
+        logger.debug("Button text clicking not supported with PyAutoGUI controller")
         return False
     
     try:
@@ -238,7 +238,7 @@ def extract_text_from_ui(x=None, y=None, element_type=None):
     controller = get_controller()
     
     if controller == ControllerType.PYAUTOGUI:
-        logger.warning("UI text extraction not supported with PyAutoGUI controller")
+        logger.debug("UI text extraction not supported with PyAutoGUI controller")
         return {}
     
     try:
@@ -269,7 +269,7 @@ def navigate_to_discord_channel(server_name, channel_name):
     controller = get_controller()
     
     if controller == ControllerType.PYAUTOGUI:
-        logger.warning("Discord channel navigation not supported with PyAutoGUI controller")
+        logger.debug("Discord channel navigation not supported with PyAutoGUI controller")
         return False
     
     try:
@@ -300,7 +300,7 @@ def get_discord_messages(count=10):
     controller = get_controller()
     
     if controller == ControllerType.PYAUTOGUI:
-        logger.warning("Discord message extraction not supported with PyAutoGUI controller")
+        logger.debug("Discord message extraction not supported with PyAutoGUI controller")
         return []
     
     try:
@@ -338,7 +338,7 @@ def focus_app(app_name):
                 logger.warning(f"macOS focus failed ({e}), PyAutoGUI cannot perform this operation")
                 return False
         else:
-            logger.warning(f"Application focusing not supported with PyAutoGUI controller")
+            logger.debug(f"Application focusing not supported with PyAutoGUI controller")
             return False
     except Exception as e:
         logger.error(f"Failed to focus application '{app_name}': {e}")

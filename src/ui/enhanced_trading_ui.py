@@ -891,18 +891,18 @@ class EnhancedTradingUI:
                         
                         # Try to get Discord status with all details
                         try:
-                            # The _is_discord_visible method actually returns only a boolean 
-                            # but updates internal state with detailed detection info
+                            # The _is_discord_visible method returns True if everything is detected
                             result = self.screen_capture._is_discord_visible(screenshot)
                             
-                            # The method returns a boolean but it also logs detailed info
-                            # For proper UI status, we need to parse that state directly
+                            # If result is True, it means Discord, server, and channel are all detected
                             discord_detected = result
                             
-                            # Force server_detected and channel_detected to True when we have successful detection
+                            # When _is_discord_visible returns True, it means all checks passed
+                            # So we can safely set all detection flags to True
                             if discord_detected:
                                 server_detected = True
                                 channel_detected = True
+                                self._log_message("Discord detection successful via screen_capture method", level="INFO")
                             
                             # Let's check the MOST RECENT log messages for clues
                             if hasattr(self, 'log_text') and self.log_text:
