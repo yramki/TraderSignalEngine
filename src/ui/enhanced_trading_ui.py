@@ -895,34 +895,49 @@ class EnhancedTradingUI:
                             # but updates internal state with detailed detection info
                             result = self.screen_capture._is_discord_visible(screenshot)
                             
-                            # Get detailed status info from logs - we need to check if our logs
-                            # indicate the channel is actually detected despite what the method returns
+                            # The method returns a boolean but it also logs detailed info
+                            # For proper UI status, we need to parse that state directly
                             discord_detected = result
                             
-                            # Use more reliable log output to check if channel was detected
-                            # We know channel is detected if the logs contain "trades channel detected" strings
-                            log_content = self.log_text.get("1.0", tk.END)
-                            
-                            # First use the direct message detection to see if we've detected both
-                            if "✅ Discord 'Wealth Group' server and 'trades' channel detected!" in log_content:
-                                # This indicates both server and channel were properly detected
-                                server_detected = True
-                                channel_detected = True
-                                self._log_message(f"Discord detector corrected: Discord=True, Server=True, Channel=True", level="INFO")
-                            elif result:
-                                # More granular detection based on indicators
-                                server_detected = any(indicator in log_content for indicator in 
-                                                     ["'Wealth Group' server", "Target server 'Wealth Group'"])
+                            # Let's check the MOST RECENT log messages for clues
+                            if hasattr(self, 'log_text') and self.log_text:
+                                log_content = self.log_text.get("1.0", tk.END)
                                 
-                                # Be more inclusive with channel detection - any mention of trades channel is enough
-                                channel_detected = any(indicator in log_content for indicator in 
-                                                      ["trades channel", "# | trades", "# trades"])
+                                # Parse the last 100 lines to focus on recent logs
+                                log_lines = log_content.split('\n')
+                                recent_log = '\n'.join(log_lines[-100:])
                                 
-                                # If we see the Wealth Group server and WG Bot together, it's likely we're in the right place
-                                if server_detected and "WG Bot" in log_content:
+                                # First - check for definitive indicators of successful detection
+                                if "✅ Discord 'Wealth Group' server and 'trades' channel detected!" in recent_log:
+                                    # This is explicit confirmation of success
+                                    server_detected = True
                                     channel_detected = True
-                                
-                                self._log_message(f"Discord detector: Discord=True, Server={server_detected}, Channel={channel_detected}", level="INFO")
+                                    self._log_message(f"UI Status: Discord, Server and Channel detected ✓", level="INFO")
+                                # Second - check if channel is inferred from buttons or traders
+                                elif "Target channel 'trades' inferred from" in recent_log:
+                                    server_detected = True
+                                    channel_detected = True
+                                    self._log_message(f"UI Status: Channel detection inferred from context ✓", level="INFO")
+                                # Third - fallback to any indicators
+                                elif discord_detected:
+                                    server_indicators = ["'Wealth Group' server", "Target server 'Wealth Group'"]
+                                    channel_indicators = ["trades channel", "# | trades", "# trades", "channel: trades"]
+                                    
+                                    # Check for server indicators
+                                    server_detected = any(indicator in recent_log for indicator in server_indicators)
+                                    
+                                    # Check for channel indicators
+                                    channel_detected = any(indicator in recent_log for indicator in channel_indicators)
+                                    
+                                    # Presence of trader mentions in correct context is a good sign
+                                    trader_detected = "👤 Target trader mention detected:" in recent_log
+                                    
+                                    # If we detected Discord + Server + Traders, then we're likely in the right place
+                                    # even if explicit channel detection failed
+                                    if server_detected and trader_detected:
+                                        channel_detected = True
+                                    
+                                    self._log_message(f"UI Status update: Discord=True, Server={server_detected}, Channel={channel_detected}", level="INFO")
                             else:
                                 # Old version or detection failed
                                 self._log_message(f"Discord detector (legacy): Discord={result}", level="INFO")

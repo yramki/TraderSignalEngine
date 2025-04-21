@@ -78,10 +78,10 @@ class ScreenCapture:
     def extract_discord_timestamp(text):
         """
         Extract Discord message timestamp from text with improved accuracy
-        Returns the actual message timestamp, not the current time
+        Returns the actual message timestamp visible in the current message, not the current time
         
         Args:
-            text: Full text from OCR
+            text: Full text from OCR for a specific message region
             
         Returns:
             str: Timestamp or None if not found
@@ -89,131 +89,82 @@ class ScreenCapture:
         discord_timestamp = None
         
         try:
-            # Prepare a dictionary to track found timestamps and their confidence level
-            timestamp_candidates = {}
+            # Text should be specific to one message block to avoid timestamp confusion
+            text = text.strip()
             
-            # Get current time
+            # Skip processing if text is too short
+            if len(text) < 5:
+                return None
+                
+            # Get current time to validate that extracted timestamps are reasonable
             current_time = time.localtime()
             current_hour = int(time.strftime("%I", current_time))  # 12-hour format
             current_minute = int(time.strftime("%M", current_time))
             current_hour_24 = int(time.strftime("%H", current_time))  # 24-hour format
             current_am_pm = time.strftime("%p", current_time)  # AM or PM
             
-            # Log current time for debugging
-            logger.debug(f"Current time: {current_hour}:{current_minute:02d} {current_am_pm} ({current_hour_24}:{current_minute:02d})")
+            # Track timestamp candidates with their confidence scores and positions
+            timestamp_candidates = []  # List of (timestamp, confidence, position)
             
-            # Very high confidence patterns: Discord-specific contexts with trader names
-            very_high_confidence_patterns = [
-                r'@([A-Za-z0-9_-]+)\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',  # @Trader 9:41 AM
-                r'@([A-Za-z0-9_-]+)\s+at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', # @Trader at 9:41 AM
-                r'from\s+@([A-Za-z0-9_-]+)\s+at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', # from @Trader at 9:41 AM
+            # Discord uses different timestamp formats:
+            # 1. Today at 11:02 AM - Full format in Discord header
+            # 2. 11:02 AM - Condensed format in messages
+            # 3. APP 11:02 AM - Discord bot message prefix
+            
+            # Check for specific Discord timestamp patterns with exact position
+            patterns = [
+                # Discord bot with timestamp - highest confidence
+                (r'APP\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', 10),
+                (r'WG Bot\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', 10),
+                (r'WG BOT\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', 10),
+                
+                # Discord standard timestamp formats - high confidence
+                (r'Today at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', 9),
+                (r'Yesterday at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', 9),
+                (r'message at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', 8),
+                
+                # Context that helps identify timestamps - medium confidence  
+                (r'@\w+\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', 7),  # @username 11:02 AM
+                (r'Posted at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', 6),
+                (r'sent at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', 6),
+                
+                # Standalone timestamps at beginning of lines - lower confidence
+                (r'^\s*(\d{1,2}:\d{2}\s*[AaPp][Mm])', 5),  # 11:02 AM at start of line
+                (r'[^\d:](\d{1,2}:\d{2}\s*[AaPp][Mm])', 4),  # 11:02 AM not preceded by numbers
+                
+                # Generic patterns as fallback - lowest confidence
+                (r'(\d{1,2}:\d{2}\s*[AaPp][Mm])', 3),     # Any 11:02 AM pattern as fallback
             ]
             
-            for pattern in very_high_confidence_patterns:
-                matches = re.findall(pattern, text, re.IGNORECASE)
-                for match in matches:
-                    # match[0] is trader name, match[1] is timestamp
-                    time_str = match[1].strip() if isinstance(match, tuple) else match.strip()
-                    trader_name = match[0].strip() if isinstance(match, tuple) else "Unknown"
-                    logger.debug(f"Found very high confidence timestamp: {time_str} for trader: {trader_name}")
-                    timestamp_candidates[time_str] = 15  # Very high confidence score
-            
-            # Strong pattern: Discord bot followed by time - "WG Bot APP 6:17 AM"
-            high_confidence_patterns = [
-                r'APP\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
-                r'WG Bot\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
-                r'Bot\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
-                r'Today at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
-                r'Posted at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
-                r'Posted\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
-                r'message at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])'
-            ]
-            
-            # Check high confidence patterns first
-            for pattern in high_confidence_patterns:
-                matches = re.findall(pattern, text, re.IGNORECASE)
-                for match in matches:
-                    match = match.strip()
-                    timestamp_candidates[match] = 10  # High confidence score
-                    logger.debug(f"Found high confidence timestamp: {match}")
-            
-            # Medium confidence - standalone time patterns but near signal text
-            medium_confidence_patterns = [
-                r'@\w+\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',  # Time near a @mention
-                r'signal\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', # Time near "signal" word
-                r'(\d{1,2}:\d{2}\s*[AaPp][Mm])\s+@',      # Time before @mention
-                r'trade\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',   # Time near "trade" word
-                r'unlock\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',  # Time near "unlock" word
-                r'content\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])'  # Time near "content" word
-            ]
-            
-            for pattern in medium_confidence_patterns:
-                matches = re.findall(pattern, text, re.IGNORECASE)
-                for match in matches:
-                    match = match.strip()
-                    timestamp_candidates[match] = 5  # Medium confidence score
-                    logger.debug(f"Found medium confidence timestamp: {match}")
-            
-            # Lower confidence - general time patterns, but we'll avoid ones matching current time
-            general_patterns = [
-                r'(\d{1,2}:\d{2}\s*[AaPp][Mm])',  # 5:17 AM or 11:45 PM
-                r'(\d{1,2}:\d{2})'                # 5:17 or 23:45 (24-hour format)
-            ]
-            
-            for pattern in general_patterns:
-                matches = re.findall(pattern, text)
-                for match in matches:
-                    match = match.strip()
+            # Find all timestamp patterns and record them with position information
+            for pattern, confidence in patterns:
+                for match in re.finditer(pattern, text, re.IGNORECASE | re.MULTILINE):
+                    # Extract the timestamp group
+                    timestamp = match.group(1).strip() if match.groups() else match.group(0).strip()
+                    position = match.start()
                     
-                    # Parse the time components
-                    is_current_time = False
+                    # Add to candidates with position information
+                    timestamp_candidates.append((timestamp, confidence, position))
                     
-                    # Try to parse the time
-                    try:
-                        # Check if this is 12-hour format with AM/PM
-                        am_pm_match = re.search(r'([AaPp][Mm])', match)
-                        if am_pm_match:
-                            # 12-hour format with AM/PM
-                            time_parts = re.search(r'(\d{1,2}):(\d{2})', match)
-                            if time_parts:
-                                hour = int(time_parts.group(1))
-                                minute = int(time_parts.group(2))
-                                am_pm = am_pm_match.group(1).upper()
-                                
-                                # Check if this matches current time
-                                if (hour == current_hour and 
-                                    abs(minute - current_minute) < 3 and  # Within 3 minutes
-                                    am_pm[0] == current_am_pm[0]):  # Same AM/PM
-                                    is_current_time = True
-                                    logger.debug(f"Ignoring current time: {match}")
-                        else:
-                            # Assume 24-hour format
-                            time_parts = re.search(r'(\d{1,2}):(\d{2})', match)
-                            if time_parts:
-                                hour = int(time_parts.group(1))
-                                minute = int(time_parts.group(2))
-                                
-                                # Check if this matches current time
-                                if hour == current_hour_24 and abs(minute - current_minute) < 3:
-                                    is_current_time = True
-                                    logger.debug(f"Ignoring current time: {match}")
-                    except Exception as parse_error:
-                        logger.debug(f"Error parsing time {match}: {parse_error}")
-                        continue
-                    
-                    # Only add if it's not the current time
-                    if not is_current_time:
-                        timestamp_candidates[match] = 2  # Low confidence score
-                        logger.debug(f"Found low confidence timestamp: {match}")
+            # Sort by confidence (high to low), then position (early in text)
+            timestamp_candidates.sort(key=lambda x: (-x[1], x[2]))
             
-            # If we found candidates, return the one with highest confidence
-            if timestamp_candidates:
-                best_match = max(timestamp_candidates.items(), key=lambda x: x[1])
-                logger.debug(f"Selected timestamp: {best_match[0]} (confidence: {best_match[1]})")
-                return best_match[0]
+            # No candidates found
+            if not timestamp_candidates:
+                return None
+                
+            # Take the highest confidence timestamp
+            best_timestamp = timestamp_candidates[0][0]
             
-            # If no timestamp found, return None
-            return None
+            # Clean and normalize the timestamp format
+            best_timestamp = best_timestamp.strip().upper()
+            
+            # Log the chosen timestamp
+            logger.info(f"📅 Found Discord message timestamp: {best_timestamp}")
+            
+            # Return the best timestamp we found
+            return best_timestamp
+            
         except Exception as e:
             # In case of any error, return None
             logger.error(f"Error extracting timestamp: {e}")
@@ -956,6 +907,7 @@ class ScreenCapture:
     def _find_trader_messages(self, screenshot):
         """
         Find regions containing messages from target traders with improved accuracy
+        and positional awareness to avoid false matches
         
         Args:
             screenshot: OpenCV image of the screen
@@ -970,45 +922,250 @@ class ScreenCapture:
         h, w = screenshot.shape[:2]
         regions = []
         
-        # Use enhanced OCR to get better text recognition
-        text = self._enhanced_ocr(screenshot)
+        # First, divide the screen into message-like regions by looking for Discord's message structure
+        # Typically Discord messages have a username at the top left of each message block
+        potential_message_regions = self._identify_message_blocks(screenshot)
         
-        # Also check with different preprocessing to maximize chances of finding traders
-        # Create an alternative version with different preprocessing if primary fails
-        contrast_enhanced = screenshot.copy()
-        if len(screenshot.shape) == 3:
-            # Convert to grayscale first if color image
-            gray = cv2.cvtColor(contrast_enhanced, cv2.COLOR_BGR2GRAY)
-            # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
-            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-            contrast_enhanced = clahe.apply(gray)
-            # Get text from contrast enhanced version
-            text_alt = self._enhanced_ocr(contrast_enhanced, preprocess=False)
-            # Combine texts for better matching chances
-            text = text + "\n" + text_alt
+        # If we couldn't identify specific blocks, fall back to whole screen analysis
+        # but with higher confidence requirements
+        if not potential_message_regions:
+            logger.debug("No message blocks identified, using whole screen with high confidence threshold")
+            potential_message_regions = [(0, 0, w, h)]
         
-        # Check if any target trader is mentioned in the text using flexible matching
+        # Check each region for trader mentions
         traders_found = []
-        for trader in self.target_traders:
-            # Use flexible matching for trader names
-            if self._match_trader(trader, text):
-                logger.info(f"👤 Found message from target trader: {trader}")
-                traders_found.append(trader)
-                # For now, return the whole screen as a region
-                # In a real implementation, we would locate the specific message
-                regions.append((0, 0, w, h))
+        
+        # Track what we've already found to avoid duplicates
+        already_matched_traders = set()
+        
+        for region_x, region_y, region_w, region_h in potential_message_regions:
+            # Extract the region
+            message_region = screenshot[region_y:region_y+region_h, region_x:region_x+region_w]
+            
+            # Skip tiny regions that can't contain a message
+            if message_region.size == 0 or region_w < 100 or region_h < 30:
+                continue
+                
+            # Use OCR with different preprocessing methods on this specific region
+            try:
+                # Get localized text from this region
+                region_text = self._enhanced_ocr(message_region)
+                
+                # Use higher confidence threshold for smaller regions to avoid false matches
+                confidence_threshold = 0.8 if region_w * region_h < (w * h / 4) else 0.6
+                
+                # Check for specific message-context indicators like timestamp patterns
+                # that suggest this is a real Discord message and not other UI elements
+                is_likely_message = any(pattern in region_text for pattern in 
+                                        ['Today at', 'AM', 'PM', 'message', '@', 'WG Bot', 'Press the button'])
+                
+                if not is_likely_message:
+                    continue
+                    
+                # Check for trader mentions in this specific block
+                for trader in self.target_traders:
+                    # Skip traders we've already matched to avoid duplicates
+                    if trader in already_matched_traders:
+                        continue
+                        
+                    # Use strict matching with confidence scoring to prevent false matches
+                    confidence = self._match_trader_with_confidence(trader, region_text)
+                    
+                    if confidence > confidence_threshold:
+                        # Extract the timestamp from this message if possible
+                        timestamp = self.extract_discord_timestamp(region_text)
+                        timestamp_info = f" (message sent at {timestamp})" if timestamp else ""
+                        
+                        logger.info(f"👤 Found message from target trader: {trader}{timestamp_info} [confidence: {confidence:.2f}]")
+                        traders_found.append(trader)
+                        already_matched_traders.add(trader)
+                        
+                        # Add this region to our results
+                        regions.append((region_x, region_y, region_w, region_h))
+                        break
+            except Exception as e:
+                logger.error(f"Error processing region for trader detection: {e}")
         
         # Log if no traders found after enhanced detection
         if not traders_found:
-            logger.debug("No target traders found in current screen")
+            logger.debug("No target traders found in visible messages")
         elif len(traders_found) > 1:
-            logger.info(f"Multiple traders detected in one screen: {', '.join(traders_found)}")
+            logger.info(f"Multiple traders detected in separate message regions: {', '.join(traders_found)}")
             
         return regions
+        
+    def _identify_message_blocks(self, screenshot):
+        """
+        Identify potential Discord message blocks
+        
+        Args:
+            screenshot: OpenCV image of the screen
+            
+        Returns:
+            list: List of regions (x, y, width, height) that could contain messages
+        """
+        try:
+            # In Discord, messages are often separated by vertical space
+            # We'll use horizontal line detection to find message boundaries
+            
+            # Convert to grayscale
+            gray = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
+            
+            # Use edge detection to find potential message boundaries
+            edges = cv2.Canny(gray, 50, 150)
+            
+            # Find horizontal lines using HoughLinesP
+            lines = cv2.HoughLinesP(edges, 1, np.pi/180, 
+                                    threshold=100, minLineLength=150, maxLineGap=10)
+            
+            # If no lines detected, fall back to simple division
+            if lines is None or len(lines) < 2:
+                h, w = screenshot.shape[:2]
+                # Divide the screen into 4 equal horizontal sections
+                # (Discord messages are usually stacked vertically)
+                sections = []
+                section_height = h // 4
+                for i in range(4):
+                    y = i * section_height
+                    sections.append((0, y, w, section_height))
+                return sections
+            
+            # Sort lines by y-coordinate to find horizontal message boundaries
+            horizontal_lines = []
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                if abs(y2 - y1) < 10:  # Only nearly horizontal lines
+                    horizontal_lines.append((min(y1, y2), max(x1, x2) - min(x1, x2)))
+            
+            # Sort by y-coordinate
+            horizontal_lines.sort(key=lambda x: x[0])
+            
+            # Group nearby lines
+            grouped_lines = []
+            if horizontal_lines:
+                current_group = [horizontal_lines[0]]
+                for i in range(1, len(horizontal_lines)):
+                    if horizontal_lines[i][0] - current_group[-1][0] < 20:  # Within 20 pixels
+                        current_group.append(horizontal_lines[i])
+                    else:
+                        # Use the line with maximum length in this group
+                        max_line = max(current_group, key=lambda x: x[1])
+                        grouped_lines.append(max_line[0])  # Use y-coordinate
+                        current_group = [horizontal_lines[i]]
+                
+                # Add last group
+                if current_group:
+                    max_line = max(current_group, key=lambda x: x[1])
+                    grouped_lines.append(max_line[0])
+            
+            # Convert line positions to message regions
+            message_regions = []
+            h, w = screenshot.shape[:2]
+            
+            if len(grouped_lines) < 2:
+                # If we couldn't find multiple lines, fall back to simple division
+                section_height = h // 4
+                for i in range(4):
+                    y = i * section_height
+                    message_regions.append((0, y, w, section_height))
+            else:
+                # Use detected lines to define message regions
+                for i in range(len(grouped_lines) - 1):
+                    y1 = grouped_lines[i]
+                    y2 = grouped_lines[i + 1]
+                    # Only consider regions taller than 50 pixels
+                    if y2 - y1 > 50:
+                        message_regions.append((0, y1, w, y2 - y1))
+            
+            return message_regions
+            
+        except Exception as e:
+            logger.error(f"Error identifying message blocks: {e}")
+            # Fall back to simple division of the screen
+            h, w = screenshot.shape[:2]
+            # Divide into 4 horizontal sections
+            return [(0, 0, w, h//4), 
+                    (0, h//4, w, h//4), 
+                    (0, h//2, w, h//4), 
+                    (0, 3*h//4, w, h//4)]
+                    
+    def _match_trader_with_confidence(self, trader, text):
+        """
+        Match trader handle with confidence scoring
+        
+        Args:
+            trader: Trader handle to match (e.g., @Bryce)
+            text: Text to search in
+            
+        Returns:
+            float: Confidence score (0.0-1.0) where 1.0 is highest confidence
+        """
+        # Normalize text and trader name
+        normalized_trader = re.sub(r'[^a-zA-Z0-9]', '', trader.lower())
+        normalized_text = text.lower()
+        
+        # Start with no confidence
+        confidence = 0.0
+        
+        # Check for exact matches first (highest confidence)
+        exact_patterns = [
+            f"@{normalized_trader.lstrip('@')}", # Discord's specific format
+            f"@-{normalized_trader.lstrip('@')}", # With hyphen
+            f"@{normalized_trader.lstrip('@')} "  # With trailing space (common in mentions)
+        ]
+        
+        for pattern in exact_patterns:
+            if pattern.lower() in normalized_text:
+                # Position-dependent scoring - matches at start of text are more reliable
+                # (Discord messages typically start with the username)
+                if text.lower().find(pattern.lower()) < len(text) // 3:
+                    confidence = max(confidence, 0.95)  # Very high confidence for start of message
+                else:
+                    confidence = max(confidence, 0.85)  # High confidence for mentions elsewhere
+                    
+        # Check for context-aware matches
+        context_patterns = [
+            (f"@{normalized_trader.lstrip('@')}", "Today at", 0.9),  # @User Today at ...
+            (f"@{normalized_trader.lstrip('@')}", "message", 0.8),   # @User ... message
+            (f"@{normalized_trader.lstrip('@')}", "content", 0.8),   # @User ... content
+            (f"@{normalized_trader.lstrip('@')}", "unlock", 0.7),    # @User ... unlock
+            (f"@{normalized_trader.lstrip('@')}", ":", 0.7),         # @User: ...
+            (normalized_trader.lstrip('@'), "bot", 0.7),             # User ... bot
+        ]
+        
+        for term, context, score in context_patterns:
+            if term.lower() in normalized_text and context.lower() in normalized_text:
+                # Check if they're reasonably close to each other
+                term_pos = normalized_text.find(term.lower())
+                context_pos = normalized_text.find(context.lower())
+                distance = abs(term_pos - context_pos)
+                
+                # Closer terms get higher confidence
+                if distance < 50:
+                    confidence = max(confidence, score)
+        
+        # Check for partial matches (lower confidence)
+        if normalized_trader.lstrip('@') in normalized_text:
+            # Make sure it's a meaningful match - avoid matching small sections of other words
+            # (e.g., "@Jo" shouldn't match "Johnson")
+            if len(normalized_trader.lstrip('@')) >= 3:
+                confidence = max(confidence, 0.5)
+                
+                # Look for trader name near message timestamp indicators
+                if any(time_indicator in text for time_indicator in ["AM", "PM", "Today at"]):
+                    confidence = max(confidence, 0.6)
+        
+        # Log match details for debugging at debug level only
+        if confidence > 0:
+            logger.debug(f"Trader '{trader}' matched with confidence {confidence:.2f}")
+            
+        return confidence
         
     def _match_trader(self, trader, text):
         """
         Use flexible pattern matching to match trader handles
+        Legacy method maintained for backward compatibility
+        Use _match_trader_with_confidence for better accuracy
         
         Args:
             trader: Trader handle to match (e.g., @Bryce)
@@ -1017,49 +1174,14 @@ class ScreenCapture:
         Returns:
             bool: True if trader is found in text using flexible matching
         """
-        # Normalize trader names for comparison
-        normalized_trader = re.sub(r'[^a-zA-Z0-9]', '', trader.lower())
-        normalized_text = text.lower()
+        # Use our improved confidence-based matching, but maintain binary output for backward compatibility
+        confidence = self._match_trader_with_confidence(trader, text)
+        result = confidence >= 0.6  # Only consider reasonably confident matches
         
-        # Create variations to test - more variations to handle different formats
-        variations = [
-            trader,                                  # Original format (e.g., @Bryce)
-            trader.replace('@', '@-'),              # With hyphen (e.g., @-Bryce)
-            trader.replace('@-', '@'),              # Without hyphen (e.g., @Bryce)
-            normalized_trader,                       # Normalized (e.g., bryce)
-            '@' + normalized_trader.lstrip('@'),     # Add @ if missing
-            '@' + normalized_trader.lstrip('@').capitalize(),  # Capitalized with @ (e.g., @Bryce)
-            '@-' + normalized_trader.lstrip('@').capitalize(),  # Capitalized with @- (e.g., @-Bryce)
-            '@-' + normalized_trader.lstrip('@'),   # With hyphen but lowercase (e.g., @-bryce)
-        ]
+        if result:
+            logger.info(f"Found trader match: {trader} in text (confidence: {confidence:.2f})")
         
-        # Special patterns for Discord message format
-        discord_patterns = [
-            f"@{normalized_trader.lstrip('@')}", # For Discord message format
-            f"@-{normalized_trader.lstrip('@')}", # For Discord message format with hyphen
-        ]
-        variations.extend(discord_patterns)
-        
-        logger.debug(f"Looking for trader '{trader}' with variations: {', '.join(variations)}")
-        
-        # First check for direct inclusion of variations in the text
-        for var in variations:
-            if var.lower() in normalized_text:
-                logger.info(f"Found trader match: {var} in text")
-                return True
-        
-        # Then check for patterns - especially targeting Discord's format showing: "@Trader"
-        patterns = [
-            re.compile(r'@' + re.escape(normalized_trader.lstrip('@')) + r'\b', re.IGNORECASE),
-            re.compile(r'@-' + re.escape(normalized_trader.lstrip('@')) + r'\b', re.IGNORECASE)
-        ]
-        
-        for pattern in patterns:
-            if pattern.search(text):
-                logger.info(f"Found trader match using pattern: {pattern.pattern}")
-                return True
-                
-        return False
+        return result
     
     def _find_unlock_button(self, image):
         """
@@ -1244,15 +1366,28 @@ class ScreenCapture:
                 
                 logger.debug(f"Message text near button: {message_text}")
                 
-                # Check if any target trader is in this message
+                # Check if any target trader is in this message with improved confidence scoring
                 trader_in_message = None
+                highest_confidence = 0.0
+                trader_timestamp = None
+                
                 for trader in self.target_traders:
-                    if self._match_trader(trader, message_text):
+                    # Use our improved confidence-based matching
+                    confidence = self._match_trader_with_confidence(trader, message_text)
+                    
+                    # Only consider reasonably confident matches
+                    if confidence > 0.6 and confidence > highest_confidence:
+                        # Extract the timestamp from this specific message region to ensure proper association
+                        timestamp = self.extract_discord_timestamp(message_text)
+                        
+                        # Store the best match
+                        highest_confidence = confidence
                         trader_in_message = trader
-                        break
+                        trader_timestamp = timestamp
                 
                 if trader_in_message:
-                    logger.info(f"✅ Found unlock button from target trader: {trader_in_message}")
+                    timestamp_info = f" (message sent at {trader_timestamp})" if trader_timestamp else ""
+                    logger.info(f"✅ Found unlock button from target trader: {trader_in_message}{timestamp_info} [confidence: {highest_confidence:.2f}]")
                     logger.info(f"🔓 UNLOCK: 'Unlock Content' button for trader {trader_in_message}")
                     return (x, y, w, h)
                 elif not self.target_traders:
@@ -1262,7 +1397,11 @@ class ScreenCapture:
                 else:
                     # If this isn't one of our target traders but it's the first button we found
                     if potential_buttons[0] == (x, y, w, h):
-                        logger.info(f"⚠️ Could not verify trader for the button, but clicking anyway as best candidate")
+                        # Try to extract timestamp anyway for logging
+                        timestamp = self.extract_discord_timestamp(message_text)
+                        timestamp_info = f" (message sent at {timestamp})" if timestamp else ""
+                        
+                        logger.info(f"⚠️ Could not verify trader for the button{timestamp_info}, but clicking anyway as best candidate")
                         return (x, y, w, h)
                     else:
                         # Skip buttons that don't match our target traders
@@ -1394,11 +1533,26 @@ class ScreenCapture:
         # First, check if this is from a target trader (if we have targets)
         if self.target_traders:
             trader_found = False
+            best_trader = None
+            highest_confidence = 0.0
+            message_timestamp = None
+            
             for trader in self.target_traders:
-                if self._match_trader(trader, text):
-                    logger.info(f"Found target trader {trader} in signal text")
-                    trader_found = True
-                    break
+                # Use our improved confidence-based matching
+                confidence = self._match_trader_with_confidence(trader, text)
+                
+                # Only consider reasonably confident matches
+                if confidence > 0.6 and confidence > highest_confidence:
+                    highest_confidence = confidence
+                    best_trader = trader
+                    
+                    # Try to extract timestamp while we're at it
+                    message_timestamp = self.extract_discord_timestamp(text)
+            
+            if best_trader:
+                timestamp_info = f" (message from {message_timestamp})" if message_timestamp else ""
+                logger.info(f"✅ Found target trader {best_trader}{timestamp_info} in signal text [confidence: {highest_confidence:.2f}]")
+                trader_found = True
             
             if not trader_found:
                 logger.debug("Signal not from a target trader, ignoring")
@@ -1585,12 +1739,18 @@ class ScreenCapture:
             pil_image = Image.fromarray(screenshot_np_ocr)
             full_text = pytesseract.image_to_string(pil_image)
             
-            # Try to identify the trader associated with this button
+            # Try to identify the trader associated with this button using improved confidence matching
             trader_name = "Unknown"
+            highest_confidence = 0.0
+            
             for trader in self.target_traders:
-                if trader in full_text or self._match_trader(trader, full_text):
-                    trader_name = trader
-                    break
+                # Use our improved confidence-based matching
+                confidence = self._match_trader_with_confidence(trader, full_text)
+                
+                # Only consider reasonably confident matches
+                if confidence > 0.6 and confidence > highest_confidence:
+                    highest_confidence = confidence
+                    trader_name = f"{trader} [confidence: {confidence:.2f}]"
             
             # Extract Discord message timestamp using our helper method
             discord_timestamp = self.extract_discord_timestamp(full_text)
