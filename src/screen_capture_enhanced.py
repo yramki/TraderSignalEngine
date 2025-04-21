@@ -1787,11 +1787,23 @@ class ScreenCapture:
         # Log full text for debugging
         logger.debug(f"OCR TEXT (full screen): {full_text[:200]}...")
         
+        # First check for already unlocked content patterns
+        unlocked_content_patterns = [
+            "valid limit order", "status:", "only you can see this", "dismiss message",
+            "entry:", "sl:", "tp:", "target", "valid"
+        ]
+        
+        # Check if content appears to be already unlocked
+        for pattern in unlocked_content_patterns:
+            if pattern.lower() in full_text.lower():
+                logger.debug(f"✓ ALREADY UNLOCKED CONTENT DETECTED: '{pattern}' found! This appears to be already unlocked content.")
+                return None  # No need to click if already unlocked
+        
         # Expanded text variations to catch more potential buttons
         button_variations = [
             "Unlock Content", "UnlockContent", "Unlock", "UNLOCK CONTENT", 
             "unlock content", "Unlock content", "Press to unlock", "Click to unlock",
-            "Press the button to unlock"
+            "Press the button to unlock", "Content", "Unlock", "unlock"
         ]
         
         button_text_found = False
@@ -1802,7 +1814,7 @@ class ScreenCapture:
                 break
                 
         if not button_text_found:
-            logger.info("⚠️ No button text variations found in this frame")
+            logger.debug("⚠️ No button text variations found in this frame")
             return None
             
         # DIRECT APPROACH: If we found the button text, let's do a direct blue color detection
@@ -1826,8 +1838,9 @@ class ScreenCapture:
                     
                 x, y, w, h = cv2.boundingRect(contour)
                 
-                # Look for button-like dimensions - Discord "Unlock Content" buttons are typically around 140x35 pixels
-                if 80 < w < 200 and 25 < h < 50:
+                # Look for button-like dimensions - Discord "Unlock Content" buttons are typically around 270x40 pixels based on screenshot
+                if ((80 < w < 300 and 25 < h < 50) or 
+                    (250 < w < 300 and 35 < h < 45)):  # Specific dimensions from screenshot
                     logger.info(f"🔍 DIRECT MATCH: Found blue button-like element at ({x}, {y}), size: {w}x{h}")
                     
                     # Check if we need to link this to a trader
@@ -1878,7 +1891,9 @@ class ScreenCapture:
                 matches_text = any(var.lower() in button_text.lower() for var in button_variations)
                 
                 # If it matches our text patterns or if it's a reasonably-sized blue button when we've detected text
-                if matches_text or (button_text_found and 100 < w < 200 and 25 < h < 50):
+                if matches_text or (button_text_found and 
+                                   ((100 < w < 300 and 25 < h < 50) or 
+                                    (250 < w < 300 and 35 < h < 45))):
                     # Add to potential buttons list with confidence score
                     score = 1.0  # Base confidence
                     
@@ -1888,9 +1903,11 @@ class ScreenCapture:
                     elif "Unlock" in button_text:
                         score += 0.3  # Partial match bonus
                         
-                    # Boost score for ideal button dimensions
-                    if 120 < w < 180 and 30 < h < 45:
-                        score += 0.2  # Ideal dimensions bonus
+                    # Boost score for ideal button dimensions based on the screenshot
+                    if (250 < w < 280 and 35 < h < 45):
+                        score += 0.5  # Perfect match to screenshot dimensions - highest bonus
+                    elif (120 < w < 180 and 30 < h < 45):
+                        score += 0.2  # Legacy dimensions - lower bonus
                     
                     potential_buttons.append((x, y, w, h, score))
                     
