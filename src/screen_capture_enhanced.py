@@ -77,7 +77,7 @@ class ScreenCapture:
     @staticmethod
     def extract_discord_timestamp(text):
         """
-        Extract Discord message timestamp from text
+        Extract Discord message timestamp from text with improved accuracy
         Returns the actual message timestamp, not the current time
         
         Args:
@@ -100,7 +100,23 @@ class ScreenCapture:
             current_am_pm = time.strftime("%p", current_time)  # AM or PM
             
             # Log current time for debugging
-            logging.debug(f"Current time: {current_hour}:{current_minute:02d} {current_am_pm} ({current_hour_24}:{current_minute:02d})")
+            logger.debug(f"Current time: {current_hour}:{current_minute:02d} {current_am_pm} ({current_hour_24}:{current_minute:02d})")
+            
+            # Very high confidence patterns: Discord-specific contexts with trader names
+            very_high_confidence_patterns = [
+                r'@([A-Za-z0-9_-]+)\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',  # @Trader 9:41 AM
+                r'@([A-Za-z0-9_-]+)\s+at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', # @Trader at 9:41 AM
+                r'from\s+@([A-Za-z0-9_-]+)\s+at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', # from @Trader at 9:41 AM
+            ]
+            
+            for pattern in very_high_confidence_patterns:
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                for match in matches:
+                    # match[0] is trader name, match[1] is timestamp
+                    time_str = match[1].strip() if isinstance(match, tuple) else match.strip()
+                    trader_name = match[0].strip() if isinstance(match, tuple) else "Unknown"
+                    logger.debug(f"Found very high confidence timestamp: {time_str} for trader: {trader_name}")
+                    timestamp_candidates[time_str] = 15  # Very high confidence score
             
             # Strong pattern: Discord bot followed by time - "WG Bot APP 6:17 AM"
             high_confidence_patterns = [
@@ -109,7 +125,8 @@ class ScreenCapture:
                 r'Bot\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
                 r'Today at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
                 r'Posted at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
-                r'Posted\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])'
+                r'Posted\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
+                r'message at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])'
             ]
             
             # Check high confidence patterns first
@@ -118,13 +135,16 @@ class ScreenCapture:
                 for match in matches:
                     match = match.strip()
                     timestamp_candidates[match] = 10  # High confidence score
+                    logger.debug(f"Found high confidence timestamp: {match}")
             
             # Medium confidence - standalone time patterns but near signal text
             medium_confidence_patterns = [
                 r'@\w+\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',  # Time near a @mention
                 r'signal\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', # Time near "signal" word
                 r'(\d{1,2}:\d{2}\s*[AaPp][Mm])\s+@',      # Time before @mention
-                r'trade\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])'   # Time near "trade" word
+                r'trade\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',   # Time near "trade" word
+                r'unlock\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',  # Time near "unlock" word
+                r'content\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])'  # Time near "content" word
             ]
             
             for pattern in medium_confidence_patterns:
@@ -132,6 +152,7 @@ class ScreenCapture:
                 for match in matches:
                     match = match.strip()
                     timestamp_candidates[match] = 5  # Medium confidence score
+                    logger.debug(f"Found medium confidence timestamp: {match}")
             
             # Lower confidence - general time patterns, but we'll avoid ones matching current time
             general_patterns = [
@@ -164,6 +185,7 @@ class ScreenCapture:
                                     abs(minute - current_minute) < 3 and  # Within 3 minutes
                                     am_pm[0] == current_am_pm[0]):  # Same AM/PM
                                     is_current_time = True
+                                    logger.debug(f"Ignoring current time: {match}")
                         else:
                             # Assume 24-hour format
                             time_parts = re.search(r'(\d{1,2}):(\d{2})', match)
@@ -174,26 +196,115 @@ class ScreenCapture:
                                 # Check if this matches current time
                                 if hour == current_hour_24 and abs(minute - current_minute) < 3:
                                     is_current_time = True
+                                    logger.debug(f"Ignoring current time: {match}")
                     except Exception as parse_error:
-                        logging.debug(f"Error parsing time {match}: {parse_error}")
+                        logger.debug(f"Error parsing time {match}: {parse_error}")
                         continue
                     
                     # Only add if it's not the current time
                     if not is_current_time:
                         timestamp_candidates[match] = 2  # Low confidence score
+                        logger.debug(f"Found low confidence timestamp: {match}")
             
             # If we found candidates, return the one with highest confidence
             if timestamp_candidates:
                 best_match = max(timestamp_candidates.items(), key=lambda x: x[1])
-                logging.debug(f"Selected timestamp: {best_match[0]} (confidence: {best_match[1]})")
+                logger.debug(f"Selected timestamp: {best_match[0]} (confidence: {best_match[1]})")
                 return best_match[0]
             
             # If no timestamp found, return None
             return None
         except Exception as e:
             # In case of any error, return None
-            logging.error(f"Error extracting timestamp: {e}")
+            logger.error(f"Error extracting timestamp: {e}")
             return None
+    
+    def _enhanced_ocr(self, image, preprocess=True):
+        """
+        Enhanced OCR function with improved preprocessing and consensus algorithm
+        
+        Args:
+            image: OpenCV image to process
+            preprocess: Whether to apply preprocessing for better results
+            
+        Returns:
+            str: Extracted text with highest confidence
+        """
+        try:
+            if preprocess:
+                # Convert to grayscale if it's not already
+                if len(image.shape) == 3:
+                    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                else:
+                    gray = image.copy()
+                    
+                # Apply different preprocessing techniques to maximize detection chances
+                # 1. Basic thresholding
+                _, binary = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+                
+                # 2. Adaptive thresholding
+                adaptive = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                               cv2.THRESH_BINARY, 11, 2)
+                
+                # 3. Noise reduction
+                denoised = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
+                
+                # 4. Contrast enhancement
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+                enhanced = clahe.apply(gray)
+                
+                # Resize to 2x for better OCR results
+                h, w = gray.shape
+                resized = cv2.resize(gray, (w*2, h*2), interpolation=cv2.INTER_CUBIC)
+                
+                # Convert all preprocessed images to PIL for OCR
+                pil_binary = Image.fromarray(binary)
+                pil_adaptive = Image.fromarray(adaptive)
+                pil_denoised = Image.fromarray(denoised)
+                pil_enhanced = Image.fromarray(enhanced)
+                pil_resized = Image.fromarray(resized)
+                pil_original = Image.fromarray(gray)
+                
+                # Perform OCR on each preprocessed image
+                text_binary = pytesseract.image_to_string(pil_binary)
+                text_adaptive = pytesseract.image_to_string(pil_adaptive)
+                text_denoised = pytesseract.image_to_string(pil_denoised)
+                text_enhanced = pytesseract.image_to_string(pil_enhanced)
+                text_resized = pytesseract.image_to_string(pil_resized)
+                text_original = pytesseract.image_to_string(pil_original)
+                
+                # Choose the text with the most content (usually the best quality)
+                candidates = [
+                    (text_binary, len(text_binary)),
+                    (text_adaptive, len(text_adaptive)),
+                    (text_denoised, len(text_denoised)),
+                    (text_enhanced, len(text_enhanced)),
+                    (text_resized, len(text_resized)),
+                    (text_original, len(text_original))
+                ]
+                
+                # Sort by text length (prefer longer extractions which usually have more information)
+                candidates.sort(key=lambda x: x[1], reverse=True)
+                
+                # Debug logging for the top results only
+                logger.debug(f"Top OCR method produced {candidates[0][1]} chars")
+                
+                return candidates[0][0]  # Return the text with most content
+            else:
+                # Standard OCR without preprocessing
+                pil_image = Image.fromarray(image if len(image.shape) == 2 else 
+                                       cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+                return pytesseract.image_to_string(pil_image)
+        except Exception as e:
+            logger.error(f"Error during enhanced OCR: {e}")
+            # Fallback to basic OCR
+            try:
+                pil_image = Image.fromarray(image if len(image.shape) == 2 else 
+                                       cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+                return pytesseract.image_to_string(pil_image)
+            except Exception as fallback_error:
+                logger.error(f"Fallback OCR also failed: {fallback_error}")
+                return ""
     
     def __init__(self, scan_interval=2.0, click_hidden_messages=True, 
                  target_traders=None, monitor_specific_channel=True, channel_name="trades",
@@ -722,11 +833,8 @@ class ScreenCapture:
         Returns:
             bool: True if Discord with correct server/channel is detected, False otherwise
         """
-        # Convert screenshot to PIL Image for text detection
-        pil_image = Image.fromarray(cv2.cvtColor(screenshot, cv2.COLOR_BGR2RGB))
-        
-        # Use OCR to extract text
-        text = pytesseract.image_to_string(pil_image)
+        # Use enhanced OCR with multiple preprocessings for more accurate text detection
+        text = self._enhanced_ocr(screenshot)
         
         # First check for Discord being visible at all
         discord_visible = "Discord" in text
@@ -737,12 +845,14 @@ class ScreenCapture:
         server_patterns = [
             self.target_server, self.target_server.replace(" ", ""), self.target_server.lower(),
             # The title bar often shows URLs like 'discord.com/.../Wealth Group'
-            "discord.com/channels/"
+            "discord.com/channels/", "discord.com",
+            # Other common Discord UI elements
+            "Direct Messages", "Friends", "Mentions"
         ]
         for pattern in server_patterns:
             if pattern.lower() in text.lower():
                 server_present = True
-                logger.debug(f"Target server '{self.target_server}' detected via pattern: {pattern}")
+                logger.debug(f"Target server '{self.target_server}' detected via pattern: '{pattern}'")
                 break
         
         # 2. Target channel must be selected (trades by default)
@@ -753,24 +863,28 @@ class ScreenCapture:
             "# trades", "#trades", "# | trades", "channel trades", "in trades", "trades channel",
             # Add common channel indicators for trading channels
             "active-futures", "active-spot", "active-alerts",
-            "orderflow", "stocks", "WG Bot", "Bot"
+            "orderflow", "stocks", "WG Bot", "Bot",
+            # Additional variations with typographic variations
+            "channel-trades", "trades-channel", "#-trades", "# - trades",
+            # Sometimes OCR might miss spaces
+            "channeltrades", "tradeschannel"
         ]
         for pattern in channel_patterns:
             if pattern.lower() in text.lower():
                 channel_present = True
-                logger.debug(f"Target channel '{self.channel_name}' detected via pattern: {pattern}")
+                logger.debug(f"Target channel '{self.channel_name}' detected via pattern: '{pattern}'")
                 break
                 
         # If we detect the Wealth Group server and see an "Unlock Content" button,
         # it's highly likely we're in the trades channel (most common place for such buttons)
-        if server_present and ("Unlock Content" in text or "Press the button to unlock" in text):
+        if server_present and any(p.lower() in text.lower() for p in ["Unlock Content", "Press the button to unlock", "Click to unlock"]):
             channel_present = True
-            logger.debug(f"Target channel '{self.channel_name}' inferred from 'Unlock Content' button presence")
+            logger.info(f"Target channel '{self.channel_name}' inferred from 'Unlock Content' button presence")
             
         # If we find both "@Trader" mentions and the server, we're probably in the right channel
         if server_present and any(trader.lower().replace('@', '') in text.lower() for trader in self.target_traders):
             channel_present = True
-            logger.debug(f"Target channel '{self.channel_name}' inferred from trader mentions")
+            logger.info(f"Target channel '{self.channel_name}' inferred from trader mentions")
         
         # Log what we found for debugging
         indicators_found = []
@@ -781,24 +895,43 @@ class ScreenCapture:
         if channel_present:
             indicators_found.append(f"{self.channel_name} channel")
         
-        # We need all three conditions to be true
-        all_required_visible = discord_visible and server_present and channel_present
-        
         # Look for additional supporting indicators that confirm we're in the right place
         supporting_indicators = [
             "Unlock Content",
             "Press the button to unlock",
             "WG Bot", 
-            "Only you can see this"
+            "Only you can see this",
+            "Click to unlock",
+            "Trader",
+            "Signal",
+            "Message"
         ]
         
         for indicator in supporting_indicators:
             if indicator.lower() in text.lower():
                 indicators_found.append(indicator)
+                
+        # We need all three conditions to be true normally, BUT:
+        # If we detect both Discord and unlock buttons, we should assume we're in the right channel
+        # This handles cases where detection is imperfect but we're clearly in a trading channel
+        basic_detection = discord_visible and server_present and channel_present
+        
+        # Alternative detection logic: if we detect Discord + "Unlock Content" buttons + any trader name
+        # it's almost certainly the right server/channel 
+        has_unlock_buttons = any(p.lower() in text.lower() for p in ["Unlock Content", "Press the button to unlock", "Click to unlock"])
+        has_trader_mentions = any(trader.lower().replace('@', '') in text.lower() for trader in self.target_traders)
+        alternative_detection = discord_visible and has_unlock_buttons and has_trader_mentions
+        
+        all_required_visible = basic_detection or alternative_detection
         
         # Log detailed results
         if all_required_visible:
-            logger.info(f"✅ Discord '{self.target_server}' server and '{self.channel_name}' channel detected!")
+            level = "info" if basic_detection else "warning"
+            if level == "info":
+                logger.info(f"✅ Discord '{self.target_server}' server and '{self.channel_name}' channel detected!")
+            else:
+                logger.warning(f"💡 Discord detected with trader mentions and unlock buttons - assuming correct channel")
+            
             logger.info(f"   Found indicators: {', '.join(indicators_found)}")
             
             # Look for specific trader mentions
@@ -822,7 +955,7 @@ class ScreenCapture:
     
     def _find_trader_messages(self, screenshot):
         """
-        Find regions containing messages from target traders
+        Find regions containing messages from target traders with improved accuracy
         
         Args:
             screenshot: OpenCV image of the screen
@@ -833,30 +966,44 @@ class ScreenCapture:
         if not self.target_traders:
             return []
         
-        # Convert to grayscale for text detection
-        gray = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
-        
-        # Use OCR to find text
-        h, w = gray.shape
+        # Get dimensions for region calculation
+        h, w = screenshot.shape[:2]
         regions = []
         
-        # Convert the screenshot to PIL Image for Tesseract
-        pil_image = Image.fromarray(cv2.cvtColor(screenshot, cv2.COLOR_BGR2RGB))
+        # Use enhanced OCR to get better text recognition
+        text = self._enhanced_ocr(screenshot)
         
-        # Extract text using Tesseract OCR
-        text = pytesseract.image_to_string(pil_image)
-        text_lower = text.lower()
+        # Also check with different preprocessing to maximize chances of finding traders
+        # Create an alternative version with different preprocessing if primary fails
+        contrast_enhanced = screenshot.copy()
+        if len(screenshot.shape) == 3:
+            # Convert to grayscale first if color image
+            gray = cv2.cvtColor(contrast_enhanced, cv2.COLOR_BGR2GRAY)
+            # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+            contrast_enhanced = clahe.apply(gray)
+            # Get text from contrast enhanced version
+            text_alt = self._enhanced_ocr(contrast_enhanced, preprocess=False)
+            # Combine texts for better matching chances
+            text = text + "\n" + text_alt
         
         # Check if any target trader is mentioned in the text using flexible matching
+        traders_found = []
         for trader in self.target_traders:
             # Use flexible matching for trader names
             if self._match_trader(trader, text):
-                logger.info(f"Found message from target trader: {trader}")
+                logger.info(f"👤 Found message from target trader: {trader}")
+                traders_found.append(trader)
                 # For now, return the whole screen as a region
                 # In a real implementation, we would locate the specific message
                 regions.append((0, 0, w, h))
-                break
         
+        # Log if no traders found after enhanced detection
+        if not traders_found:
+            logger.debug("No target traders found in current screen")
+        elif len(traders_found) > 1:
+            logger.info(f"Multiple traders detected in one screen: {', '.join(traders_found)}")
+            
         return regions
         
     def _match_trader(self, trader, text):
@@ -957,9 +1104,8 @@ class ScreenCapture:
         
         logger.debug(f"Scanning for 'Unlock Content' buttons, found {len(all_contours)} potential blue elements")
         
-        # Also do a direct search for the text "Unlock Content" in the image
-        pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-        full_text = pytesseract.image_to_string(pil_image)
+        # Use our enhanced OCR for better text detection
+        full_text = self._enhanced_ocr(image)
         
         # Log full text for debugging
         logger.debug(f"OCR TEXT (full screen): {full_text[:200]}...")
