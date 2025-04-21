@@ -819,7 +819,7 @@ class EnhancedTradingUI:
             messagebox.showerror("Error", "Screen capture is not initialized")
             return
             
-        self._log_message("🚨 EXECUTING EMERGENCY UNLOCK BUTTON DETECTION", color="red")
+        self._log_message("🚨 EXECUTING EMERGENCY UNLOCK BUTTON DETECTION", level="ERROR")
         
         # Create a separate thread to run the emergency click function 
         # so it doesn't freeze the UI
@@ -827,11 +827,11 @@ class EnhancedTradingUI:
             try:
                 success = self.screen_capture.force_click_unlock_button()
                 if success:
-                    self._log_message("✅ Successfully clicked potential 'Unlock Content' buttons", color="green")
+                    self._log_message("✅ Successfully clicked potential 'Unlock Content' buttons", level="SUCCESS")
                 else:
-                    self._log_message("⚠️ No suitable buttons found to click", color="orange")
+                    self._log_message("⚠️ No suitable buttons found to click", level="WARNING")
             except Exception as e:
-                self._log_message(f"❌ Error during emergency button click: {e}", color="red")
+                self._log_message(f"❌ Error during emergency button click: {e}", level="ERROR")
         
         # Start the thread and return immediately
         click_thread = threading.Thread(target=execute_emergency_click)
