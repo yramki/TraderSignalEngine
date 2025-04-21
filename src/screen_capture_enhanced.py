@@ -17,6 +17,7 @@ import re
 import atexit
 import sys
 import traceback
+import datetime
 
 # Import the input controller for reliable macOS control
 try:
@@ -593,14 +594,21 @@ class ScreenCapture:
         
         # If we detected a complete trading signal (all 3 criteria met)
         if signal_detected:
-            logger.info(f"🎯 COMPLETE TRADING SIGNAL DETECTED - All 3 criteria matched")
+            # Format a clear, consistent message showing exactly what was found
+            trader_name = signal_data['trader'] or "Unknown trader"
+            timestamp = time.strftime("%H:%M:%S")
+            
+            # Create a visually distinct, easily scannable message
+            logger.info(f"✅ COMPLETE TRADING SIGNAL DETECTED - All 3 criteria matched")
+            logger.info(f"👤 Trading signal found: {trader_name}, Time: {timestamp}")
             
             # Extract the button coordinates
             if signal_data["button_coords"]:
                 x, y, w, h = signal_data["button_coords"]
                 click_x, click_y = x + w // 2, y + h // 2
                 
-                logger.info(f"🖱️ Clicking 'Unlock Content' button at ({click_x}, {click_y}) for trader {signal_data['trader']}")
+                # Create a clear log message with the coordinates
+                logger.info(f"🖱️ Clicking 'Unlock Content' button at ({click_x}, {click_y}) for trader {trader_name}")
                 
                 # Use fallback if we can't use direct mouse control
                 click_successful = False
@@ -2053,8 +2061,17 @@ class ScreenCapture:
             logger.info(f"✅ 2. Unlock text: Found")
             logger.info(f"✅ 3. Unlock button: Found at {button_coords}")
             
-            # Save a full screenshot with the detection
+            # Add a clearly formatted summary line that's easy to spot in logs
+            timestamp = time.strftime("%H:%M:%S")
+            logger.info(f"👤 Trading signal found: {target_trader}, Time: {timestamp}")
+            
             if button_coords:
+                # Extract click coordinates
+                x, y, w, h = button_coords
+                click_x, click_y = x + w // 2, y + h // 2
+                logger.info(f"🖱️ Clicking button at ({click_x}, {click_y})")
+                
+                # Save a full screenshot with the detection
                 screenshot_file = self._save_screenshot_with_highlight(
                     screenshot, 
                     button_coords,
