@@ -901,15 +901,27 @@ class EnhancedTradingUI:
                             
                             # Use more reliable log output to check if channel was detected
                             # We know channel is detected if the logs contain "trades channel detected" strings
-                            if "✅ Discord 'Wealth Group' server and 'trades' channel detected!" in self.log_text.get("1.0", tk.END):
+                            log_content = self.log_text.get("1.0", tk.END)
+                            
+                            # First use the direct message detection to see if we've detected both
+                            if "✅ Discord 'Wealth Group' server and 'trades' channel detected!" in log_content:
                                 # This indicates both server and channel were properly detected
                                 server_detected = True
                                 channel_detected = True
                                 self._log_message(f"Discord detector corrected: Discord=True, Server=True, Channel=True", level="INFO")
                             elif result:
-                                # Discord is detected but not sure about channel/server
-                                server_detected = "Wealth Group" in self.log_text.get("1.0", tk.END)
-                                channel_detected = "trades channel" in self.log_text.get("1.0", tk.END)
+                                # More granular detection based on indicators
+                                server_detected = any(indicator in log_content for indicator in 
+                                                     ["'Wealth Group' server", "Target server 'Wealth Group'"])
+                                
+                                # Be more inclusive with channel detection - any mention of trades channel is enough
+                                channel_detected = any(indicator in log_content for indicator in 
+                                                      ["trades channel", "# | trades", "# trades"])
+                                
+                                # If we see the Wealth Group server and WG Bot together, it's likely we're in the right place
+                                if server_detected and "WG Bot" in log_content:
+                                    channel_detected = True
+                                
                                 self._log_message(f"Discord detector: Discord=True, Server={server_detected}, Channel={channel_detected}", level="INFO")
                             else:
                                 # Old version or detection failed

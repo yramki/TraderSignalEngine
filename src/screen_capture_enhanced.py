@@ -18,24 +18,47 @@ import atexit
 import sys
 import traceback
 
+# Import the input controller for more reliable mouse control
+try:
+    from input_controller import InputController
+    HAS_INPUT_CONTROLLER = True
+except ImportError:
+    HAS_INPUT_CONTROLLER = False
+    print("Warning: input_controller module not found, falling back to basic PyAutoGUI")
+
 # Configure PyAutoGUI safety settings
 pyautogui.PAUSE = 0.1  # Add small pause between PyAutoGUI commands for stability
 pyautogui.FAILSAFE = True  # Enable fail-safe for mouse movement
+
+# Create input controller instance if available
+input_controller = None
+if HAS_INPUT_CONTROLLER:
+    try:
+        # Try to create the input controller with the default settings
+        input_controller = InputController()
+        logger = logging.getLogger(__name__)
+        logger.info(f"✅ Using enhanced input controller: {input_controller.controller_type}")
+    except Exception as e:
+        print(f"Error initializing input controller: {e}")
+        input_controller = None
 
 # Create a global emergency cleanup function to ensure mouse is always released
 def _emergency_cleanup():
     """Global emergency cleanup to release mouse if program terminates unexpectedly"""
     try:
-        # Release any held mouse buttons
-        pyautogui.mouseUp()
-        # Release common keyboard modifiers 
-        pyautogui.keyUp('shift')
-        pyautogui.keyUp('ctrl')
-        pyautogui.keyUp('alt')
-        # Move cursor to a safe location
-        screen_width, screen_height = pyautogui.size()
-        pyautogui.moveTo(screen_width // 2, screen_height // 2, duration=0.1)
-        print("Emergency cleanup: Released mouse buttons and keyboard modifiers")
+        if input_controller:
+            # Use enhanced controller if available
+            input_controller.emergency_cleanup()
+            print("Emergency cleanup: Used enhanced input controller")
+        else:
+            # Fallback to basic PyAutoGUI cleanup
+            pyautogui.mouseUp()
+            pyautogui.keyUp('shift')
+            pyautogui.keyUp('ctrl')
+            pyautogui.keyUp('alt')
+            screen_width, screen_height = pyautogui.size()
+            pyautogui.moveTo(screen_width // 2, screen_height // 2, duration=0.1)
+            print("Emergency cleanup: Released mouse buttons and keyboard modifiers")
     except Exception as e:
         print(f"Error during emergency cleanup: {e}")
         traceback.print_exc()
@@ -66,54 +89,110 @@ class ScreenCapture:
         discord_timestamp = None
         
         try:
-            # Look for "APP" followed by time - this is a common Discord UI pattern in "WG Bot APP 6:17 AM"
-            app_time_pattern = r'APP\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])'
-            app_matches = re.findall(app_time_pattern, text)
+            # Prepare a dictionary to track found timestamps and their confidence level
+            timestamp_candidates = {}
             
-            if app_matches:
-                # Found time near APP tag which is more reliable
-                return app_matches[0].strip()
+            # Get current time
+            current_time = time.localtime()
+            current_hour = int(time.strftime("%I", current_time))  # 12-hour format
+            current_minute = int(time.strftime("%M", current_time))
+            current_hour_24 = int(time.strftime("%H", current_time))  # 24-hour format
+            current_am_pm = time.strftime("%p", current_time)  # AM or PM
             
-            # Try looking for timestamps adjacent to typical Discord bot names
-            bot_patterns = [
+            # Log current time for debugging
+            logging.debug(f"Current time: {current_hour}:{current_minute:02d} {current_am_pm} ({current_hour_24}:{current_minute:02d})")
+            
+            # Strong pattern: Discord bot followed by time - "WG Bot APP 6:17 AM"
+            high_confidence_patterns = [
+                r'APP\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
                 r'WG Bot\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
-                r'Bot\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])'
+                r'Bot\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
+                r'Today at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
+                r'Posted at\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',
+                r'Posted\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])'
             ]
             
-            for pattern in bot_patterns:
-                bot_matches = re.findall(pattern, text)
-                if bot_matches:
-                    return bot_matches[0].strip()
+            # Check high confidence patterns first
+            for pattern in high_confidence_patterns:
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                for match in matches:
+                    match = match.strip()
+                    timestamp_candidates[match] = 10  # High confidence score
             
-            # General patterns to look for timestamps if specific patterns fail
-            timestamp_patterns = [
-                r'\d{1,2}:\d{2}\s*[AaPp][Mm]',  # 5:17 AM or 11:45 PM
-                r'\d{1,2}:\d{2}'                # 5:17 or 23:45 (24-hour format)
+            # Medium confidence - standalone time patterns but near signal text
+            medium_confidence_patterns = [
+                r'@\w+\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])',  # Time near a @mention
+                r'signal\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])', # Time near "signal" word
+                r'(\d{1,2}:\d{2}\s*[AaPp][Mm])\s+@',      # Time before @mention
+                r'trade\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])'   # Time near "trade" word
             ]
             
-            # Get the current hour to avoid matching current time accidentally
-            current_hour = time.strftime("%I")
-            current_hour_int = int(current_hour.lstrip('0'))
+            for pattern in medium_confidence_patterns:
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                for match in matches:
+                    match = match.strip()
+                    timestamp_candidates[match] = 5  # Medium confidence score
             
-            for pattern in timestamp_patterns:
+            # Lower confidence - general time patterns, but we'll avoid ones matching current time
+            general_patterns = [
+                r'(\d{1,2}:\d{2}\s*[AaPp][Mm])',  # 5:17 AM or 11:45 PM
+                r'(\d{1,2}:\d{2})'                # 5:17 or 23:45 (24-hour format)
+            ]
+            
+            for pattern in general_patterns:
                 matches = re.findall(pattern, text)
                 for match in matches:
                     match = match.strip()
                     
-                    # Try to extract just the hour to compare with current hour
-                    hour_match = re.match(r'(\d{1,2}):', match)
-                    if hour_match:
-                        match_hour = int(hour_match.group(1))
-                        
-                        # If the hour is different from current hour, it's likely a Discord timestamp
-                        # not the current time mistakenly detected
-                        if match_hour != current_hour_int:
-                            return match
+                    # Parse the time components
+                    is_current_time = False
+                    
+                    # Try to parse the time
+                    try:
+                        # Check if this is 12-hour format with AM/PM
+                        am_pm_match = re.search(r'([AaPp][Mm])', match)
+                        if am_pm_match:
+                            # 12-hour format with AM/PM
+                            time_parts = re.search(r'(\d{1,2}):(\d{2})', match)
+                            if time_parts:
+                                hour = int(time_parts.group(1))
+                                minute = int(time_parts.group(2))
+                                am_pm = am_pm_match.group(1).upper()
+                                
+                                # Check if this matches current time
+                                if (hour == current_hour and 
+                                    abs(minute - current_minute) < 3 and  # Within 3 minutes
+                                    am_pm[0] == current_am_pm[0]):  # Same AM/PM
+                                    is_current_time = True
+                        else:
+                            # Assume 24-hour format
+                            time_parts = re.search(r'(\d{1,2}):(\d{2})', match)
+                            if time_parts:
+                                hour = int(time_parts.group(1))
+                                minute = int(time_parts.group(2))
+                                
+                                # Check if this matches current time
+                                if hour == current_hour_24 and abs(minute - current_minute) < 3:
+                                    is_current_time = True
+                    except Exception as parse_error:
+                        logging.debug(f"Error parsing time {match}: {parse_error}")
+                        continue
+                    
+                    # Only add if it's not the current time
+                    if not is_current_time:
+                        timestamp_candidates[match] = 2  # Low confidence score
+            
+            # If we found candidates, return the one with highest confidence
+            if timestamp_candidates:
+                best_match = max(timestamp_candidates.items(), key=lambda x: x[1])
+                logging.debug(f"Selected timestamp: {best_match[0]} (confidence: {best_match[1]})")
+                return best_match[0]
             
             # If no timestamp found, return None
             return None
         except Exception as e:
             # In case of any error, return None
+            logging.error(f"Error extracting timestamp: {e}")
             return None
     
     def __init__(self, scan_interval=2.0, click_hidden_messages=True, 
@@ -669,7 +748,9 @@ class ScreenCapture:
         # 2. Target channel must be selected (trades by default)
         channel_present = False
         channel_patterns = [
-            f"# {self.channel_name}", f"#{self.channel_name}", f"# | {self.channel_name}", 
+            f"# {self.channel_name}", f"#{self.channel_name}", f"# | {self.channel_name}", f"#{self.channel_name.lower()}", 
+            # Many variations on trades channel
+            "# trades", "#trades", "# | trades", "channel trades", "in trades", "trades channel",
             # Add common channel indicators for trading channels
             "active-futures", "active-spot", "active-alerts",
             "orderflow", "stocks", "WG Bot", "Bot"
@@ -679,6 +760,17 @@ class ScreenCapture:
                 channel_present = True
                 logger.debug(f"Target channel '{self.channel_name}' detected via pattern: {pattern}")
                 break
+                
+        # If we detect the Wealth Group server and see an "Unlock Content" button,
+        # it's highly likely we're in the trades channel (most common place for such buttons)
+        if server_present and ("Unlock Content" in text or "Press the button to unlock" in text):
+            channel_present = True
+            logger.debug(f"Target channel '{self.channel_name}' inferred from 'Unlock Content' button presence")
+            
+        # If we find both "@Trader" mentions and the server, we're probably in the right channel
+        if server_present and any(trader.lower().replace('@', '') in text.lower() for trader in self.target_traders):
+            channel_present = True
+            logger.debug(f"Target channel '{self.channel_name}' inferred from trader mentions")
         
         # Log what we found for debugging
         indicators_found = []
